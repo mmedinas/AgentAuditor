@@ -46,11 +46,62 @@ def read_analysis_files(files):
     return '\n'.join(all_content), file_names
 
 
-# --- O Prompt Mestre (Sem alteração) ---
+# --- O Prompt Mestre REVISADO E MAIS FORTE ---
 MASTER_PROMPT = """
-Você é um Engenheiro Sênior e Auditor de Projetos...
-... (Todo o seu prompt mestre detalhado vai aqui, incluindo a seção [RESUMO ESTRUTURADO PARA GRÁFICICOs]) ...
-""" # Fim do Master Prompt
+Sua **ÚNICA TAREFA** é comparar os itens físicos descritos na "Fonte da Verdade (SP)" (especificamente dos tópicos 17 ao 30) com os itens listados nas "Listas de Engenharia".
+
+**NÃO GERE RELATÓRIOS DE KPIs, CPI, SPI, RAG status ou qualquer outra métrica de gerenciamento de projetos.** Foque **EXCLUSIVAMENTE** na comparação de itens físicos.
+
+**SIGA ESTAS REGRAS ESTRITAMENTE:**
+1.  **EXTRAÇÃO (SP):** Leia a SP (tópicos 17-30). Extraia itens físicos (comprados/fabricados). Um item existe se '[X] Sim' ou se houver especificação/descrição/notas.
+2.  **COMPARAÇÃO (Listas):** Para cada item da SP, procure-o nas Listas de Engenharia. Verifique nome, quantidade e especificações técnicas relevantes. Use o NOME DO ARQUIVO da lista ao reportar.
+3.  **INFERÊNCIA (Implícitos):** Identifique itens implícitos necessários (ex: Gerador->Exaustão) e verifique se estão nas listas.
+4.  **RELATÓRIO DE PENDÊNCIAS:** Liste **APENAS** as pendências encontradas, usando o formato Markdown abaixo. Se não houver pendências, escreva apenas "Auditoria Concluída. Nenhuma pendência encontrada.".
+
+**FORMATO OBRIGATÓRIO DO RELATÓRIO MARKDOWN:**
+### PENDÊNCIAS - ITENS FALTANTES (SP vs Listas)
+* **[Item da SP]:** Não encontrado nas Listas.
+
+### PENDÊNCIAS - DISCREPÂNCIAS TÉCNICAS
+* **[Item]:** SP diverge da Lista [NomeLista].
+    * **SP:** [Especificação SP]
+    * **Lista ([NomeLista]):** [Especificação Lista]
+
+### PENDÊNCIAS - DISCREPÂNCIAS DE QUANTIDADE
+* **[Item]:** Qtd na SP diverge da Lista [NomeLista].
+    * **SP:** Qtd: [X]
+    * **Lista ([NomeLista]):** Qtd: [Y]
+
+### ITENS IMPLÍCITOS FALTANTES
+* **[Item Implícito]:** Necessário para [Item SP], mas não encontrado.
+
+---
+**IMPORTANTE: APÓS o relatório Markdown, adicione a seção de resumo estruturado:**
+
+[RESUMO ESTRUTURADO PARA GRÁFICOS]
+| TipoPendencia           | NomeLista                 | DetalheItem                                        |
+| :---------------------- | :------------------------ | :------------------------------------------------- |
+| FALTANTE                | N/A                       | [Item da SP]                                       |
+| DISCREPANCIA_TECNICA    | [NomeLista do Arquivo]    | [Item]                                             |
+| DISCREPANCIA_QUANTIDADE | [NomeLista do Arquivo]    | [Item]                                             |
+| IMPLICITO_FALTANTE      | N/A                       | [Item Implícito]                                   |
+* (Repita para CADA pendência. Use 'N/A' onde aplicável.)
+* Se não houver pendências, escreva "Nenhuma".
+---
+
+**DOCUMENTOS PARA ANÁLISE:**
+
+[FONTE DA VERDADE (SP)]
+{sp_content}
+---
+[LISTAS DE ENGENHARIA (Nomes dos arquivos incluídos no conteúdo)]
+{analysis_content}
+---
+
+**INICIE O RELATÓRIO DE AUDITORIA DE PENDÊNCIAS ABAIXO:**
+[RELATÓRIO DE AUDITORIA DE PENDÊNCIAS (Markdown)]
+
+""" # Fim do Master Prompt Revisado
 
 # --- Função para Parsear o Resumo Estruturado (Sem alteração) ---
 def parse_summary_table(summary_section):
