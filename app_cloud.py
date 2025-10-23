@@ -207,7 +207,7 @@ if 'lm_uploader_key' not in st.session_state: st.session_state.lm_uploader_key =
 with st.sidebar:
     # Adicionar um logo ou título na sidebar
     # st.image("URL_DA_SUA_LOGO.png", width=150) # Descomente se tiver um logo
-    st.header("⚙️ Controles")
+    # st.header("⚙️ Controles")
 
     # Apenas verifica e informa o status da chave (lida do ambiente/secrets)
     st.subheader("Status da Chave API")
