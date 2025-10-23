@@ -186,7 +186,7 @@ frame_css = """
 }
 /* Tenta garantir que a sidebar tenha um fundo consistente */
 [data-testid="stSidebar"] {
-    background-color: #acadad; /* Cor de fundo levemente cinza para a sidebar */
+    background-color: #ffd000; /* Cor de fundo levemente cinza para a sidebar */
 }
 </style>
 """
