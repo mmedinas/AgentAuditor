@@ -207,22 +207,7 @@ if 'lm_uploader_key' not in st.session_state: st.session_state.lm_uploader_key =
 with st.sidebar:
     # Adicionar um logo ou título na sidebar
     # st.image("URL_DA_SUA_LOGO.png", width=150) # Descomente se tiver um logo
-    # st.header("⚙️ Controles")
-
-    # Apenas verifica e informa o status da chave (lida do ambiente/secrets)
-    st.subheader("Status da Chave API")
-    google_api_key_from_secrets = os.getenv("GOOGLE_API_KEY")
-    if google_api_key_from_secrets:
-        st.caption("🔒 Chave API configurada (via Segredos/Ambiente).")
-    else:
-        st.caption("⚠️ Chave API NÃO configurada nos Segredos/Ambiente.")
-        st.caption("No Streamlit Cloud: vá em 'Settings > Secrets'.")
-        st.caption("Localmente: defina a variável de ambiente GOOGLE_API_KEY.")
-
-
-    st.markdown("---")
-
-    st.subheader("📄 Arquivos")
+    st.header("📄 Arquivos")
     st.markdown("###### Fonte da Verdade (SP)")
     # Usamos a chave de sessão para resetar o uploader no "Limpar"
     sp_file = st.file_uploader("Upload .docx", type=["docx"], key=f"sp_uploader_{st.session_state.sp_file_uploader_key}", label_visibility="collapsed")
@@ -230,8 +215,7 @@ with st.sidebar:
     st.markdown("###### Listas de Engenharia")
     analysis_files = st.file_uploader("Upload .xlsx, .csv", type=["xlsx", "csv"],
                                       accept_multiple_files=True, key=f"lm_uploader_{st.session_state.lm_uploader_key}", label_visibility="collapsed")
-
-    st.markdown("---")
+    
 
     st.subheader("🚀 Ações")
     # Botão Iniciar Auditoria
@@ -248,6 +232,21 @@ with st.sidebar:
          st.session_state.sp_file_uploader_key += 1
          st.session_state.lm_uploader_key += 1
          st.rerun() # Recarrega a página
+
+    st.markdown("---")
+
+     # st.subheader("⚙️ Controles")
+
+    # Apenas verifica e informa o status da chave (lida do ambiente/secrets)
+    st.subheader("Status da Chave API")
+    google_api_key_from_secrets = os.getenv("GOOGLE_API_KEY")
+    if google_api_key_from_secrets:
+        st.caption("🔒 Chave API configurada (via Segredos/Ambiente).")
+    else:
+        st.caption("⚠️ Chave API NÃO configurada nos Segredos/Ambiente.")
+        st.caption("No Streamlit Cloud: vá em 'Settings > Secrets'.")
+        st.caption("Localmente: defina a variável de ambiente GOOGLE_API_KEY.")
+
 
 # --- Área Principal (Resultados) ---
 st.markdown('<div class="frame output-frame">', unsafe_allow_html=True) # Moldura única
