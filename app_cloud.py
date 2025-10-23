@@ -259,7 +259,7 @@ if st.session_state.start_audit_clicked:
     st.session_state.audit_results = None # Limpa resultados antigos
 
     # Validações
-   valid = True
+       valid = True
         # Verifica APENAS se a chave foi encontrada no ambiente/secrets
         if not google_api_key_from_secrets:
              st.error("🔑 Chave API não configurada nos Segredos/Ambiente."); valid = False
