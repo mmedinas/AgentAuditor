@@ -1,7 +1,8 @@
+# -*- coding: utf-8 -*-
 import streamlit as st
 import os
 import pandas as pd
-import docx
+import docx # pip install python-docx
 from io import BytesIO
 import re # Para extrair dados do resumo
 import altair as alt # Para os gráficos
@@ -11,9 +12,10 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-# --- Funções para Ler os Arquivos (Sem alteração) ---
-# (read_sp_file e read_analysis_files como antes)
+# --- Funções para Ler os Arquivos ---
+
 def read_sp_file(file):
+    """Lê o conteúdo de um arquivo .docx (SP) e retorna como texto."""
     try:
         document = docx.Document(file)
         full_text = [para.text for para in document.paragraphs]
@@ -27,26 +29,34 @@ def read_sp_file(file):
         return ""
 
 def read_analysis_files(files):
+    """Lê múltiplos arquivos .csv ou .xlsx (Listas) e concatena em um único texto."""
     all_content, file_names = [], []
     for file in files:
         try:
             content = ""
-            file_base_name = os.path.splitext(file.name)[0] # Nome sem extensão
+            # Usa o nome base sem extensão para referência interna
+            file_base_name = os.path.splitext(file.name)[0] 
             if file.name.endswith('.csv'):
-                df = pd.read_csv(BytesIO(file.getvalue()))
+                bytes_data = file.getvalue()
+                df = pd.read_csv(BytesIO(bytes_data))
                 content = df.to_string()
             elif file.name.endswith('.xlsx'):
-                df = pd.read_excel(BytesIO(file.getvalue()))
+                bytes_data = file.getvalue()
+                # O 'openpyxl' deve estar instalado (pip install openpyxl)
+                df = pd.read_excel(BytesIO(bytes_data))
                 content = df.to_string()
+            
             file_names.append(file_base_name)
+            # Adiciona marcador com nome do arquivo no conteúdo enviado para a IA
             all_content.append(f"--- CONTEÚDO DO ARQUIVO: {file_base_name} ---\n{content}\n")
+            
         except Exception as e:
             st.session_state.read_error = f"Erro ao ler Lista ({file.name}): {e}"
-            return "", []
-    return '\n'.join(all_content), file_names
+            return "", [] # Retorna vazio se falhar em algum arquivo
+            
+    return '\n'.join(all_content), file_names # Retorna nomes também
 
-
-# --- O Prompt Mestre REVISADO E MAIS FORTE ---
+# --- O Prompt Mestre (Reforçado) ---
 MASTER_PROMPT = """
 Sua **ÚNICA TAREFA** é comparar os itens físicos descritos na "Fonte da Verdade (SP)" (especificamente dos tópicos 17 ao 30) com os itens listados nas "Listas de Engenharia".
 
@@ -54,7 +64,7 @@ Sua **ÚNICA TAREFA** é comparar os itens físicos descritos na "Fonte da Verda
 
 **SIGA ESTAS REGRAS ESTRITAMENTE:**
 1.  **EXTRAÇÃO (SP):** Leia a SP (tópicos 17-30). Extraia itens físicos (comprados/fabricados). Um item existe se '[X] Sim' ou se houver especificação/descrição/notas.
-2.  **COMPARAÇÃO (Listas):** Para cada item da SP, procure-o nas Listas de Engenharia. Verifique nome, quantidade e especificações técnicas relevantes. Use o NOME DO ARQUIVO da lista ao reportar.
+2.  **COMPARAÇÃO (Listas):** Para cada item da SP, procure-o nas Listas de Engenharia. Verifique nome, quantidade e especificações técnicas relevantes. Use o NOME DO ARQUIVO da lista (ex: 'LME_200ELEL5477_REV02') ao reportar.
 3.  **INFERÊNCIA (Implícitos):** Identifique itens implícitos necessários (ex: Gerador->Exaustão) e verifique se estão nas listas.
 4.  **RELATÓRIO DE PENDÊNCIAS:** Liste **APENAS** as pendências encontradas, usando o formato Markdown abaixo. Se não houver pendências, escreva apenas "Auditoria Concluída. Nenhuma pendência encontrada.".
 
@@ -85,7 +95,7 @@ Sua **ÚNICA TAREFA** é comparar os itens físicos descritos na "Fonte da Verda
 | DISCREPANCIA_TECNICA    | [NomeLista do Arquivo]    | [Item]                                             |
 | DISCREPANCIA_QUANTIDADE | [NomeLista do Arquivo]    | [Item]                                             |
 | IMPLICITO_FALTANTE      | N/A                       | [Item Implícito]                                   |
-* (Repita para CADA pendência. Use 'N/A' onde aplicável.)
+* (Repita para CADA pendência. Use 'N/A' onde aplicável. Use o nome EXATO do arquivo da lista.)
 * Se não houver pendências, escreva "Nenhuma".
 ---
 
@@ -103,16 +113,16 @@ Sua **ÚNICA TAREFA** é comparar os itens físicos descritos na "Fonte da Verda
 
 """ # Fim do Master Prompt Revisado
 
-# --- Função para Parsear o Resumo Estruturado (Sem alteração) ---
+# --- Função para Parsear o Resumo Estruturado ---
 def parse_summary_table(summary_section):
     pendencias = []
-    # Regex ajustado para ser mais flexível com espaços
+    # Regex ajustado para nome da lista e detalhe
     pattern = r"\|\s*(FALTANTE|DISCREPANCIA_TECNICA|DISCREPANCIA_QUANTIDADE|IMPLICITO_FALTANTE)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|"
     lines = summary_section.strip().split('\n')
     if len(lines) > 2:
-        data_lines = lines[2:] # Pula header e linha de separação
+        data_lines = lines[2:] # Pula header e linha de separação ----
         for line in data_lines:
-            match = re.search(pattern, line, re.IGNORECASE) # Ignora case para N/A
+            match = re.search(pattern, line, re.IGNORECASE)
             if match:
                 tipo = match.group(1).strip().upper() # Garante tipo em maiúsculas
                 lista_raw = match.group(2).strip()
@@ -127,7 +137,10 @@ def parse_summary_table(summary_section):
                     # Tenta pegar apenas a sigla inicial (LME, LMM, LMH) se aplicável
                     base_name_match = re.match(r"([a-zA-Z]+)(_|\d|-|$)", lista_clean)
                     if base_name_match:
-                         lista_clean = base_name_match.group(1)
+                         lista_clean = base_name_match.group(1) # Usa só a sigla tipo LME
+                    else:
+                         lista_clean = lista_raw # Mantem nome se não identificar sigla
+
 
                 pendencias.append({"Tipo": tipo, "Lista": lista_clean, "Item": detalhe})
     return pd.DataFrame(pendencias)
@@ -136,11 +149,9 @@ def parse_summary_table(summary_section):
 # --- Configuração da Página e CSS ---
 st.set_page_config(page_title="Agente Auditor v4", layout="wide")
 
-# CSS para molduras e controle de visibilidade
-# Usaremos classes específicas para colunas de input e output
+# CSS para molduras (sem height: 100%)
 frame_css = """
 <style>
-/* Estilo base da moldura */
 .frame {
     border: 1px solid #e1e4e8;
     border-radius: 6px;
@@ -149,7 +160,6 @@ frame_css = """
     box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     margin-bottom: 1rem;
 }
-/* Estilo dos títulos dentro das molduras */
 .frame h3, .frame h5 {
     margin-top: 0;
     margin-bottom: 0.8rem;
@@ -157,11 +167,9 @@ frame_css = """
     border-bottom: 1px solid #eaecef;
     padding-bottom: 0.3rem;
 }
-/* Garante que o container dentro da coluna use altura mínima */
 .stVerticalBlock > div:has(> .frame) {
      min-height: 150px; /* Altura mínima para colunas de input/ações */
 }
-/* Classe específica para a moldura de resultados */
 .output-frame {
      min-height: 300px; /* Altura mínima maior para a área de resultados */
 }
@@ -170,82 +178,102 @@ frame_css = """
 st.markdown(frame_css, unsafe_allow_html=True)
 
 # --- Inicializa Session State ---
-# 'hide_input_cols' controla a visibilidade
-if 'hide_input_cols' not in st.session_state:
-    st.session_state.hide_input_cols = False
-if 'read_error' not in st.session_state:
-    st.session_state.read_error = None
-if 'audit_results' not in st.session_state:
-    st.session_state.audit_results = None
+if 'hide_input_cols' not in st.session_state: st.session_state.hide_input_cols = False
+if 'read_error' not in st.session_state: st.session_state.read_error = None
+if 'audit_results' not in st.session_state: st.session_state.audit_results = None
+# Flag para controlar se a auditoria foi iniciada nesta execução
+if 'start_audit_clicked' not in st.session_state: st.session_state.start_audit_clicked = False
+
 
 # --- Header ---
-# Pode ser um container com a classe "frame" se quiser moldura aqui também
 st.markdown('<div class="frame">', unsafe_allow_html=True)
 st.title("🤖✨ Agente Auditor de Projetos v4")
 st.caption("Auditoria SP vs. Listas de Engenharia | Gemini Cloud")
 st.markdown('</div>', unsafe_allow_html=True)
 
 
-# --- Sidebar (Configuração e Controle de Visibilidade) ---
+# --- Sidebar ---
 with st.sidebar:
     st.header("⚙️ Configuração")
-    google_api_key = st.text_input("Cole sua Chave de API:", type="password", key="api_key_input")
-    st.markdown("---")
+    # Tenta ler a chave dos Secrets (ambiente). NÃO MOSTRA O CAMPO DE TEXTO.
+    google_api_key_from_secrets = os.getenv("GOOGLE_API_KEY")
 
+    if google_api_key_from_secrets:
+        st.success("🔑 Chave API encontrada nos Segredos!")
+    else:
+        st.warning("🔑 Chave API não encontrada nos Segredos/Ambiente.")
+        st.info("Configure GOOGLE_API_KEY em 'Settings > Secrets' no Streamlit Cloud.")
+
+    st.markdown("---")
     st.header("👁️ Visualização")
-    # Botão para alternar a visibilidade
     button_label = "Expandir Resultados" if not st.session_state.hide_input_cols else "Mostrar Inputs"
     if st.button(button_label, use_container_width=True):
         st.session_state.hide_input_cols = not st.session_state.hide_input_cols
-        st.rerun() # Força o rerender com o novo layout
-
+        st.rerun()
     st.markdown("---")
-    st.caption("🔑 Use chave gratuita do AI Studio para testes (limites aplicáveis).")
 
 
-# --- Função para Exibir Resultados (Evita Duplicação) ---
+# --- Função para Exibir Resultados (com ordem corrigida e diagnóstico) ---
 def display_results():
-    # Exibe resultados se existirem no estado da sessão
     if 'audit_results' in st.session_state and st.session_state.audit_results:
         summary_data, report_markdown = st.session_state.audit_results
-        
-        # Exibe Gráfico
+
+        # ----- PASSO 1: EXIBIR O RELATÓRIO DETALHADO PRIMEIRO -----
+        st.markdown("#### Relatório Detalhado")
+        with st.expander("Clique para ver os detalhes da auditoria", expanded=st.session_state.hide_input_cols):
+            st.markdown(report_markdown if report_markdown else "*Nenhum relatório em Markdown foi gerado ou encontrado.*")
+
+        st.markdown("---") # Separador visual
+
+        # ----- PASSO 2: TENTAR PROCESSAR E EXIBIR O GRÁFICO -----
         if not summary_data.empty:
             st.markdown("#### Resumo Gráfico das Pendências")
-            chart_data = summary_data.groupby(['Lista', 'Tipo']).size().reset_index(name='Contagem')
-            color_scale = alt.Scale(domain=['FALTANTE', 'DISCREPANCIA_TECNICA', 'DISCREPANCIA_QUANTIDADE', 'IMPLICITO_FALTANTE'],
-                                    range=['#e45756', '#f58518', '#4c78a8', '#54a24b'])
-            chart = alt.Chart(chart_data).mark_bar().encode(
-                x=alt.X('Lista', sort='-y', title='Lista / Origem'),
-                y=alt.Y('Contagem', title='Nº de Pendências'),
-                color=alt.Color('Tipo', scale=color_scale, title='Tipo de Pendência'),
-                tooltip=['Lista', 'Tipo', 'Contagem', alt.Tooltip('Item', title='Exemplo Item')]
-            ).properties(
-                title='Distribuição das Pendências por Lista e Tipo'
-            ).interactive()
-            st.altair_chart(chart, use_container_width=True)
-        elif report_markdown and "nenhuma pendência encontrada" in report_markdown.lower():
-            st.info("✅ Nenhuma pendência foi encontrada na auditoria.")
-        else:
-            st.warning("⚠️ Não foi possível gerar o gráfico ou o resumo estruturado. Verifique o relatório detalhado.")
-
-        # Exibe Relatório Detalhado
-        st.markdown("#### Relatório Detalhado")
-        with st.expander("Clique para ver os detalhes da auditoria", expanded=st.session_state.hide_input_cols): # Expande automaticamente se colunas estiverem ocultas
-            st.markdown(report_markdown if report_markdown else "Nenhum relatório gerado.")
             
-    # Mensagem se não houver resultados e o botão não foi clicado agora
-    elif 'start_audit_clicked' not in st.session_state or not st.session_state.start_audit_clicked:
+            try: # Try/except robusto em volta de TUDO relacionado ao gráfico
+                chart_data = summary_data.groupby(['Lista', 'Tipo']).size().reset_index(name='Contagem')
+
+                # ----- DIAGNÓSTICO: MOSTRAR OS DADOS DO GRÁFICO -----
+                with st.expander("Dados usados para o gráfico (`chart_data`)"):
+                    st.dataframe(chart_data)
+                # ---------------------------------------------------
+
+                color_scale = alt.Scale(domain=['FALTANTE', 'DISCREPANCIA_TECNICA', 'DISCREPANCIA_QUANTIDADE', 'IMPLICITO_FALTANTE'],
+                                        range=['#e45756', '#f58518', '#4c78a8', '#54a24b'])
+
+                # ----- DIAGNÓSTICO: TOOLTIP SIMPLIFICADO -----
+                tooltip_config = ['Lista', 'Tipo', 'Contagem']
+                # tooltip_config = ['Lista', 'Tipo', 'Contagem', alt.Tooltip('Item', title='Exemplo Item')] # Original
+                # -----------------------------------------------
+
+                chart = alt.Chart(chart_data).mark_bar().encode(
+                    x=alt.X('Lista', sort='-y', title='Lista / Origem'),
+                    y=alt.Y('Contagem', title='Nº de Pendências'),
+                    color=alt.Color('Tipo', scale=color_scale, title='Tipo de Pendência'),
+                    tooltip=tooltip_config
+                ).properties(
+                    title='Distribuição das Pendências por Lista e Tipo'
+                ).interactive()
+                st.altair_chart(chart, use_container_width=True)
+
+            except Exception as chart_error: # Captura qualquer erro do Altair/Pandas
+                 st.error(f"⚠️ Erro ao gerar o gráfico: {chart_error}")
+                 st.warning("Verifique a tabela 'chart_data' acima ou o formato do resumo estruturado no relatório detalhado.")
+
+        elif report_markdown and "nenhuma pendência encontrada" in report_markdown.lower():
+            st.info("✅ Nenhuma pendência foi encontrada na auditoria (confirmado pelo relatório).")
+        else:
+             st.warning("⚠️ Não foi possível gerar o gráfico (dados de resumo ausentes ou inválidos). Verifique o relatório detalhado acima.")
+
+    # Mensagem inicial se nada foi processado ainda
+    elif not st.session_state.start_audit_clicked:
          st.info("Aguardando o upload dos arquivos e o início da auditoria...")
 
 
 # --- Layout Principal Condicional ---
-
 if not st.session_state.hide_input_cols:
     # --- VISÃO PADRÃO (3 COLUNAS) ---
     col1, col2, col3 = st.columns([2, 1, 3]) # uploads(2), ações(1), resultados(3)
 
-    # --- Coluna 1: Uploads ---
     with col1:
         st.markdown('<div class="frame">', unsafe_allow_html=True)
         st.subheader("📄 Arquivos")
@@ -256,35 +284,35 @@ if not st.session_state.hide_input_cols:
                                           accept_multiple_files=True, key="lm_uploader_visible", label_visibility="collapsed")
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- Coluna 2: Ações ---
     with col2:
         st.markdown('<div class="frame">', unsafe_allow_html=True)
         st.subheader("🚀 Ações")
-        start_audit = st.button("Iniciar Auditoria", type="primary", use_container_width=True, key="start_button_visible")
-        if start_audit:
+        # Botão Iniciar Auditoria
+        if st.button("Iniciar Auditoria", type="primary", use_container_width=True, key="start_button_visible"):
             st.session_state.start_audit_clicked = True # Marca que o botão foi clicado
-
+            st.rerun() # Força rerun para entrar na lógica de processamento na col3
+        
+        # Botão Limpar Tudo
         if st.button("Limpar Tudo", use_container_width=True, key="clear_button_visible"):
              st.session_state.audit_results = None
              st.session_state.read_error = None
-             # Idealmente, limparia os uploaders também, mas st.rerun é suficiente por enquanto
+             st.session_state.start_audit_clicked = False # Reseta o estado do botão
+             # Limpar uploaders é complexo, rerun geralmente é suficiente visualmente
              st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- Coluna 3: Status e Resultados ---
     with col3:
         st.markdown('<div class="frame output-frame">', unsafe_allow_html=True) # Usa classe específica
         st.subheader("📊 Status e Resultados")
 
-        # Lógica de execução da auditoria (só roda se botão foi clicado)
-        if 'start_audit_clicked' in st.session_state and st.session_state.start_audit_clicked:
+        # Lógica de execução da auditoria (só roda se o botão foi clicado *nesta* execução)
+        if st.session_state.start_audit_clicked:
             st.session_state.read_error = None # Limpa antes de tentar ler
             st.session_state.audit_results = None # Limpa resultados antigos
 
             # Validações
             valid = True
-            if not google_api_key: st.error("🔑 Chave API?"); valid = False
-            # Usa as chaves corretas dos uploaders
+            if not google_api_key_from_secrets: st.error("🔑 Chave API?"); valid = False
             sp_file_obj = st.session_state.get('sp_uploader_visible')
             analysis_files_obj = st.session_state.get('lm_uploader_visible')
             if not sp_file_obj: st.error("📄 Arquivo SP?"); valid = False
@@ -292,7 +320,6 @@ if not st.session_state.hide_input_cols:
                 
             if valid:
                 try:
-                    os.environ["GOOGLE_API_KEY"] = google_api_key
                     # Leitura
                     with st.spinner("⚙️ Lendo..."):
                         sp_content = read_sp_file(sp_file_obj)
@@ -303,7 +330,7 @@ if not st.session_state.hide_input_cols:
                     else:
                         st.success(f"✅ Arquivos lidos!")
                         MODEL_NAME = "gemini-flash-latest" 
-                        llm = ChatGoogleGenerativeAI(model=MODEL_NAME)
+                        llm = ChatGoogleGenerativeAI(model=MODEL_NAME) # Chave lida do ambiente
                         prompt_template = ChatPromptTemplate.from_template(MASTER_PROMPT)
                         llm_chain = prompt_template | llm | StrOutputParser()
 
@@ -314,12 +341,10 @@ if not st.session_state.hide_input_cols:
                             raw_output = llm_chain.invoke({"sp_content": sp_content, "analysis_content": analysis_content})
 
                             # Processa e guarda resultados
-                            report_markdown = raw_output
-                            summary_data = pd.DataFrame()
+                            report_markdown = raw_output; summary_data = pd.DataFrame()
                             summary_marker = "[RESUMO ESTRUTURADO PARA GRÁFICOS]"
                             if summary_marker in raw_output:
-                                parts = raw_output.split(summary_marker, 1)
-                                report_markdown = parts[0].strip()
+                                parts = raw_output.split(summary_marker, 1); report_markdown = parts[0].strip()
                                 summary_section = parts[1].strip()
                                 if summary_section and summary_section.lower() != "nenhuma":
                                     summary_data = parse_summary_table(summary_section)
@@ -329,28 +354,24 @@ if not st.session_state.hide_input_cols:
                 # Tratamento de Erros
                 except Exception as e:
                     error_message = f"❌ Erro: {e}"
-                    if "API key" in str(e): error_message = f"🔑 Erro API Key: {e}"
+                    if "API key" in str(e) or "credential" in str(e).lower(): error_message = f"🔑 Erro API Key: Verifique os Secrets. {e}"
                     elif "quota" in str(e).lower() or "limit" in str(e).lower(): error_message = f"🚦 Limite API: {e}"
                     elif "model" in str(e).lower() and "not found" in str(e).lower(): error_message = f"🤷 Modelo não encontrado ('{MODEL_NAME}')."
-                    st.error(error_message)
-                    st.session_state.audit_results = None 
+                    st.error(error_message); st.session_state.audit_results = None 
             
-            # Limpa o estado do botão após processar
+            # Limpa o estado do botão DEPOIS de processar
             st.session_state.start_audit_clicked = False 
+            st.rerun() # Força um rerun para exibir os resultados agora usando display_results()
 
-        # Chama a função para exibir os resultados (se houver)
-        display_results()
+        # Chama a função para exibir os resultados (se houver e o botão não acabou de ser clicado)
+        else:
+            display_results()
+
         st.markdown('</div>', unsafe_allow_html=True) # Fecha moldura col3
 
 else:
     # --- VISÃO EXPANDIDA (APENAS RESULTADOS) ---
-    # A coluna de resultados ocupa a largura total
     st.markdown('<div class="frame output-frame">', unsafe_allow_html=True) # Usa classe específica
     st.subheader("📊 Resultados da Auditoria (Visão Expandida)")
-    
-    # Chama a função para exibir os resultados (que busca no session_state)
-    display_results()
-    
-    st.markdown('</div>', unsafe_allow_html=True) # Fecha moldura
-
-# --- (Fim do código principal) ---
+    display_results() # Exibe os resultados guardados no session_state
+    st.markdown
