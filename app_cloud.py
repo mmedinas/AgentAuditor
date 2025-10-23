@@ -182,7 +182,7 @@ frame_css = """
     padding-bottom: 0.5rem;
     border-bottom: 1px solid #000000;
     margin-bottom: 0.8rem;
-    color: #0366d6; /* Aplica cor azul aos títulos da sidebar também */
+    color: #000000; /* Aplica cor azul aos títulos da sidebar também */
 }
 /* Tenta garantir que a sidebar tenha um fundo consistente */
 [data-testid="stSidebar"] {
