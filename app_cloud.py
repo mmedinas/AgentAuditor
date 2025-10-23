@@ -203,29 +203,28 @@ if 'sp_file_uploader_key' not in st.session_state: st.session_state.sp_file_uplo
 if 'lm_uploader_key' not in st.session_state: st.session_state.lm_uploader_key = 0
 
 
-# --- Sidebar (Inputs e Ações) ---
+# --- Sidebar (Inputs e Ações - SEM CAMPO DE CHAVE) ---
 with st.sidebar:
     # Adicionar um logo ou título na sidebar
-    # st.image("URL_DA_SUA_LOGO.png", width=150)
+    # st.image("URL_DA_SUA_LOGO.png", width=150) # Descomente se tiver um logo
     st.header("⚙️ Controles")
 
-    st.subheader("Chave API")
-    google_api_key = st.text_input("Cole sua Chave API:", type="password", key="api_key_input", label_visibility="collapsed", placeholder="Cole a chave API do Google AI Studio")
-    # Mensagem de validação da chave (discreta)
+    # Apenas verifica e informa o status da chave (lida do ambiente/secrets)
+    st.subheader("Status da Chave API")
     google_api_key_from_secrets = os.getenv("GOOGLE_API_KEY")
-    api_key_status = ""
-    if google_api_key:
-        api_key_status = "🔑 Chave API inserida."
-    elif google_api_key_from_secrets:
-        api_key_status = "🔒 Usando chave dos Segredos."
+    if google_api_key_from_secrets:
+        st.caption("🔒 Chave API configurada (via Segredos/Ambiente).")
     else:
-        api_key_status = "⚠️ Chave API não encontrada."
-    st.caption(api_key_status)
+        st.caption("⚠️ Chave API NÃO configurada nos Segredos/Ambiente.")
+        st.caption("No Streamlit Cloud: vá em 'Settings > Secrets'.")
+        st.caption("Localmente: defina a variável de ambiente GOOGLE_API_KEY.")
+
 
     st.markdown("---")
 
     st.subheader("📄 Arquivos")
     st.markdown("###### Fonte da Verdade (SP)")
+    # Usamos a chave de sessão para resetar o uploader no "Limpar"
     sp_file = st.file_uploader("Upload .docx", type=["docx"], key=f"sp_uploader_{st.session_state.sp_file_uploader_key}", label_visibility="collapsed")
 
     st.markdown("###### Listas de Engenharia")
@@ -238,7 +237,7 @@ with st.sidebar:
     # Botão Iniciar Auditoria
     if st.button("▶️ Iniciar Auditoria", type="primary", use_container_width=True):
         st.session_state.start_audit_clicked = True
-        # Rerun é chamado na lógica principal para iniciar o processamento
+        # st.rerun() # Rerun é chamado na lógica principal agora
 
     # Botão Limpar Tudo
     if st.button("🧹 Limpar Tudo", use_container_width=True):
@@ -260,10 +259,12 @@ if st.session_state.start_audit_clicked:
     st.session_state.audit_results = None # Limpa resultados antigos
 
     # Validações
-    valid = True
-    # Usa a chave da sidebar ou dos secrets
-    api_key_to_use = google_api_key if google_api_key else google_api_key_from_secrets
-    if not api_key_to_use: st.error("🔑 Chave API não inserida ou configurada nos Segredos."); valid = False
+   valid = True
+        # Verifica APENAS se a chave foi encontrada no ambiente/secrets
+        if not google_api_key_from_secrets:
+             st.error("🔑 Chave API não configurada nos Segredos/Ambiente."); valid = False
+        # (Restante das validações de arquivos como antes)
+        current_sp_key = f"sp_uploader_{st.session_state.sp_file_uploader_key}"
     # Pega os arquivos dos uploaders atuais
     # A chave dos uploaders muda no "Limpar", então pegamos pelo estado atual
     current_sp_key = f"sp_uploader_{st.session_state.sp_file_uploader_key}"
@@ -276,8 +277,6 @@ if st.session_state.start_audit_clicked:
     if valid:
         try:
             # Configura a chave API para a sessão (importante se não usar secrets)
-            # A biblioteca tentará ler do ambiente primeiro, mas definir aqui garante
-            os.environ["GOOGLE_API_KEY"] = api_key_to_use
 
             # Leitura
             with st.spinner("⚙️ Lendo arquivos..."):
