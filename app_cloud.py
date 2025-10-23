@@ -180,7 +180,7 @@ frame_css = """
 /* Estilo para subheaders na sidebar */
 .st-emotion-cache-16txtl3 h3, .st-emotion-cache-16txtl3 h6 { /* Seletores podem mudar com versões do Streamlit */
     padding-bottom: 0.5rem;
-    border-bottom: 1px solid #eaecef;
+    border-bottom: 1px solid #000000;
     margin-bottom: 0.8rem;
     color: #0366d6; /* Aplica cor azul aos títulos da sidebar também */
 }
