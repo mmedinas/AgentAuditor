@@ -1,9 +1,8 @@
-altair
-google-ai-generativelanguage
-google-generativeai
-langchain-core
-langchain-google-genai
-openpyxl
+streamlit
 pandas
 python-docx
-streamlit
+langchain-google-genai
+openpyxl
+altair
+google-generativeai
+pymupdf
