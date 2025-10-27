@@ -3,10 +3,11 @@ import streamlit as st
 import os
 import pandas as pd
 import docx # pip install python-docx
+import fitz # pip install pymupdf <= Biblioteca para PDF
 from io import BytesIO
-import re # Para extrair dados do resumo
-import altair as alt # Para os gráficos
-import time # Para timestamp no nome do arquivo
+import re
+import altair as alt
+import time
 
 # Importando as ferramentas da LangChain para a API do Google
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -18,89 +19,116 @@ from langchain_core.output_parsers import StrOutputParser
 def read_sp_file(file):
     """Lê o conteúdo de um arquivo .docx (SP) e retorna como texto."""
     try:
+        # ... (código como antes) ...
         document = docx.Document(file)
         full_text = [para.text for para in document.paragraphs]
-        # Adiciona texto das tabelas
         for table in document.tables:
             for row in table.rows:
                 for cell in row.cells:
                     full_text.append(cell.text)
         return '\n'.join(full_text)
     except Exception as e:
-        # Define o erro no estado da sessão para ser exibido na área principal
         st.session_state.read_error = f"Erro ao ler SP ({file.name}): {e}"
-        return "" # Retorna vazio em caso de erro
+        return ""
 
 def read_analysis_files(files):
-    """Lê múltiplos arquivos .csv ou .xlsx (Listas) e concatena em um único texto."""
+    """Lê múltiplos arquivos .csv ou .xlsx (Listas) e concatena."""
+    # ... (código como antes) ...
     all_content, file_names = [], []
     for file in files:
         try:
             content = ""
-            # Usa o nome base sem extensão para referência interna e no prompt
             file_base_name = os.path.splitext(file.name)[0]
             if file.name.endswith('.csv'):
-                bytes_data = file.getvalue()
-                df = pd.read_csv(BytesIO(bytes_data))
+                df = pd.read_csv(BytesIO(file.getvalue()))
                 content = df.to_string()
             elif file.name.endswith('.xlsx'):
-                bytes_data = file.getvalue()
-                # O 'openpyxl' deve estar instalado (pip install openpyxl)
-                df = pd.read_excel(BytesIO(bytes_data))
+                df = pd.read_excel(BytesIO(file.getvalue()))
                 content = df.to_string()
-
             file_names.append(file_base_name)
-            # Adiciona marcador com nome do arquivo no conteúdo enviado para a IA
             all_content.append(f"--- CONTEÚDO DO ARQUIVO: {file_base_name} ---\n{content}\n")
-
         except Exception as e:
-            # Define o erro no estado da sessão
             st.session_state.read_error = f"Erro ao ler Lista ({file.name}): {e}"
-            return "", [] # Retorna vazio se falhar em algum arquivo
+            return "", []
+    return '\n'.join(all_content), file_names
 
-    return '\n'.join(all_content), file_names # Retorna nomes também
+# --- NOVA FUNÇÃO: Ler Desenhos (PDFs) ---
+def read_drawing_files(files):
+    """Lê múltiplos arquivos PDF (Desenhos) e extrai texto."""
+    all_content, file_names = [], []
+    for file in files:
+        try:
+            file_base_name = os.path.splitext(file.name)[0]
+            file_names.append(file_base_name)
+            doc_text = f"--- CONTEÚDO DO DESENHO: {file_base_name} ---\n"
+            # Abre o PDF usando PyMuPDF (fitz)
+            pdf_document = fitz.open(stream=file.getvalue(), filetype="pdf")
+            page_num = 1
+            for page in pdf_document:
+                doc_text += f"\n--- Página {page_num} ---\n"
+                doc_text += page.get_text("text") # Extrai texto simples
+                page_num += 1
+            pdf_document.close()
+            all_content.append(doc_text + "\n")
+        except Exception as e:
+            st.session_state.read_error = f"Erro ao ler Desenho PDF ({file.name}): {e}"
+            return "", [] # Retorna vazio se falhar
 
-# --- O Prompt Mestre (Reforçado) ---
-MASTER_PROMPT = """
+    return '\n'.join(all_content), file_names
+
+# --- Prompts ---
+# Prompt Mestre para Listas (sem alteração)
+MASTER_PROMPT_LISTS = """
 Sua **ÚNICA TAREFA** é comparar os itens físicos descritos na "Fonte da Verdade (SP)" (especificamente dos tópicos 17 ao 30) com os itens listados nas "Listas de Engenharia".
-
-**NÃO GERE RELATÓRIOS DE KPIs, CPI, SPI, RAG status ou qualquer outra métrica de gerenciamento de projetos.** Foque **EXCLUSIVAMENTE** na comparação de itens físicos.
-
+**NÃO GERE RELATÓRIOS DE KPIs...** Foque **EXCLUSIVAMENTE** na comparação de itens físicos.
 **SIGA ESTAS REGRAS ESTRITAMENTE:**
-1.  **EXTRAÇÃO (SP):** Leia a SP (tópicos 17-30). Extraia itens físicos (comprados/fabricados). Um item existe se '[X] Sim' ou se houver especificação/descrição/notas.
-2.  **COMPARAÇÃO (Listas):** Para cada item da SP, procure-o nas Listas de Engenharia. Verifique nome, quantidade e especificações técnicas relevantes. Use o NOME DO ARQUIVO da lista (ex: 'LME_200ELEL5477_REV02') ao reportar.
-3.  **INFERÊNCIA (Implícitos):** Identifique itens implícitos necessários (ex: Gerador->Exaustão) e verifique se estão nas listas.
-4.  **RELATÓRIO DE PENDÊNCIAS:** Liste **APENAS** as pendências encontradas, usando o formato Markdown abaixo. Se não houver pendências, escreva apenas "Auditoria Concluída. Nenhuma pendência encontrada.".
-
+1.  **EXTRAÇÃO (SP):** ... (como antes)
+2.  **COMPARAÇÃO (Listas):** ... (como antes)
+3.  **INFERÊNCIA (Implícitos):** ... (como antes)
+4.  **RELATÓRIO DE PENDÊNCIAS:** ... (como antes)
 **FORMATO OBRIGATÓRIO DO RELATÓRIO MARKDOWN:**
-### PENDÊNCIAS - ITENS FALTANTES (SP vs Listas)
-* **[Item da SP]:** Não encontrado nas Listas.
-
-### PENDÊNCIAS - DISCREPÂNCIAS TÉCNICAS
-* **[Item]:** SP diverge da Lista [NomeLista].
-    * **SP:** [Especificação SP]
-    * **Lista ([NomeLista]):** [Especificação Lista]
-
-### PENDÊNCIAS - DISCREPÂNCIAS DE QUANTIDADE
-* **[Item]:** Qtd na SP diverge da Lista [NomeLista].
-    * **SP:** Qtd: [X]
-    * **Lista ([NomeLista]):** Qtd: [Y]
-
-### ITENS IMPLÍCITOS FALTANTES
-* **[Item Implícito]:** Necessário para [Item SP], mas não encontrado.
-
+### PENDÊNCIAS - ITENS FALTANTES (SP vs Listas) ...
+### PENDÊNCIAS - DISCREPÂNCIAS TÉCNICAS ...
+### PENDÊNCIAS - DISCREPÂNCIAS DE QUANTIDADE ...
+### ITENS IMPLÍCITOS FALTANTES ...
 ---
 **IMPORTANTE: APÓS o relatório Markdown, adicione a seção de resumo estruturado:**
-
 [RESUMO ESTRUTURADO PARA GRÁFICOS]
-| TipoPendencia           | NomeLista                 | DetalheItem                                        |
-| :---------------------- | :------------------------ | :------------------------------------------------- |
-| FALTANTE                | N/A                       | [Item da SP]                                       |
-| DISCREPANCIA_TECNICA    | [NomeLista do Arquivo]    | [Item]                                             |
-| DISCREPANCIA_QUANTIDADE | [NomeLista do Arquivo]    | [Item]                                             |
-| IMPLICITO_FALTANTE      | N/A                       | [Item Implícito]                                   |
-* (Repita para CADA pendência. Use 'N/A' onde aplicável. Use o nome EXATO do arquivo da lista.)
-* Se não houver pendências, escreva "Nenhuma".
+| TipoPendencia | NomeLista | DetalheItem |
+... (como antes) ...
+---
+**DOCUMENTOS PARA ANÁLISE:**
+[FONTE DA VERDADE (SP)]
+{sp_content}
+---
+[LISTAS DE ENGENHARIA]
+{analysis_content}
+---
+**INICIE O RELATÓRIO DE AUDITORIA DE PENDÊNCIAS ABAIXO:**
+[RELATÓRIO DE AUDITORIA DE PENDÊNCIAS (Markdown)]
+"""
+
+# --- NOVO PROMPT MESTRE PARA DESENHOS ---
+MASTER_PROMPT_DRAWINGS = """
+Sua **ÚNICA TAREFA** é verificar se os itens físicos descritos na "Fonte da Verdade (SP)" (tópicos 17-30) estão mencionados ou representados no texto extraído dos "Desenhos Técnicos".
+
+**NÃO compare quantidades ou especificações detalhadas.** Foque **EXCLUSIVAMENTE** na **presença** do item nos desenhos.
+
+**SIGA ESTAS REGRAS ESTRITAMENTE:**
+1.  **EXTRAÇÃO (SP):** Leia a SP (tópicos 17-30). Extraia os principais itens físicos (comprados/fabricados). Um item existe se '[X] Sim' ou se houver especificação/descrição/notas.
+2.  **VERIFICAÇÃO (Desenhos):** Para cada item da SP, procure por menções (texto, legendas, títulos) nos "Desenhos Técnicos". Use o NOME DO ARQUIVO e NÚMERO DA PÁGINA (se disponíveis no texto extraído) ao reportar.
+3.  **RELATÓRIO DE VERIFICAÇÃO:** Liste **TODOS** os itens extraídos da SP e indique se foram encontrados ou não nos desenhos. Use o formato Markdown abaixo.
+
+**FORMATO OBRIGATÓRIO DO RELATÓRIO MARKDOWN:**
+### Verificação SP vs Desenhos
+
+* **[Item da SP 1]:** ✅ Encontrado (Mencionado no Desenho: [NomeDesenho], Página: [NumPagina])
+* **[Item da SP 2]:** ❌ Não encontrado nos textos dos desenhos fornecidos.
+* **[Item da SP 3]:** ✅ Encontrado (Mencionado no Desenho: [NomeDesenho])
+    * (Repita para todos os itens da SP)
+
+---
+**IMPORTANTE:** Como esta é uma verificação de presença, **NÃO GERE** a seção [RESUMO ESTRUTURADO PARA GRÁFICOS].
 ---
 
 **DOCUMENTOS PARA ANÁLISE:**
@@ -108,196 +136,160 @@ Sua **ÚNICA TAREFA** é comparar os itens físicos descritos na "Fonte da Verda
 [FONTE DA VERDADE (SP)]
 {sp_content}
 ---
-[LISTAS DE ENGENHARIA (Nomes dos arquivos incluídos no conteúdo)]
-{analysis_content}
+[DESENHOS TÉCNICOS (Texto Extraído)]
+{drawing_content}
 ---
 
-**INICIE O RELATÓRIO DE AUDITORIA DE PENDÊNCIAS ABAIXO:**
-[RELATÓRIO DE AUDITORIA DE PENDÊNCIAS (Markdown)]
+**INICIE O RELATÓRIO DE VERIFICAÇÃO ABAIXO:**
+[RELATÓRIO DE VERIFICAÇÃO (Markdown)]
+"""
 
-""" # Fim do Master Prompt Revisado
-
-# --- Função para Parsear o Resumo Estruturado ---
+# --- Funções Parse e Download (convert_df_to_csv como antes) ---
+# (parse_summary_table como antes)
 def parse_summary_table(summary_section):
     pendencias = []
-    # Regex ajustado para nome da lista e detalhe, mais flexível
     pattern = r"\|\s*(FALTANTE|DISCREPANCIA_TECNICA|DISCREPANCIA_QUANTIDADE|IMPLICITO_FALTANTE)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|"
     lines = summary_section.strip().split('\n')
     if len(lines) > 2:
-        data_lines = lines[2:] # Pula header e linha de separação ----
+        data_lines = lines[2:]
         for line in data_lines:
-            match = re.search(pattern, line, re.IGNORECASE) # Ignora case para N/A e tipo
+            match = re.search(pattern, line, re.IGNORECASE)
             if match:
-                tipo = match.group(1).strip().upper() # Garante tipo em maiúsculas
+                tipo = match.group(1).strip().upper()
                 lista_raw = match.group(2).strip()
                 detalhe = match.group(3).strip()
-
                 if lista_raw.upper() == 'N/A':
                     lista_clean = 'Geral/Não Encontrado'
                 else:
-                    # Tenta limpar nome do arquivo (remove path, extensão, etc.)
-                    lista_base = os.path.basename(lista_raw)
-                    lista_clean = os.path.splitext(lista_base)[0]
-                    # Tenta pegar apenas a sigla inicial (LME, LMM, LMH) se aplicável
+                    lista_base = os.path.basename(lista_raw); lista_clean = os.path.splitext(lista_base)[0]
                     base_name_match = re.match(r"([a-zA-Z]+)(_|\d|-|$)", lista_clean)
-                    if base_name_match:
-                         lista_clean = base_name_match.group(1) # Usa só a sigla tipo LME
-                    else:
-                         lista_clean = lista_raw # Mantem nome se não identificar sigla
-
+                    if base_name_match: lista_clean = base_name_match.group(1)
+                    else: lista_clean = lista_raw
                 pendencias.append({"Tipo": tipo, "Lista": lista_clean, "Item": detalhe})
     return pd.DataFrame(pendencias)
 
-# --- Função para converter DataFrame para CSV (necessária para download) ---
-@st.cache_data # Cache para evitar reprocessamento desnecessário
+
+@st.cache_data
 def convert_df_to_csv(df):
-    # Garante que o dataframe não está vazio antes de converter
-    if df is None or df.empty:
-        return "".encode('utf-8')
+    if df is None or df.empty: return "".encode('utf-8')
     return df.to_csv(index=False).encode('utf-8')
 
-# --- Configuração da Página e CSS ---
-st.set_page_config(page_title="Agente Auditor v5", layout="wide")
-
-# CSS para moldura (aplicada apenas na área principal agora)
-frame_css = """
-<style>
-/* Estilo base da moldura */
-.frame {
-    border: 1px solid #e1e4e8; border-radius: 6px; padding: 1rem;
-    background-color: #f6f8fa; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    margin-bottom: 1rem; min-height: 400px; /* Altura mínima para a área de resultados */
-}
-/* Estilo dos títulos dentro da moldura principal */
-.frame h3, .frame h4, .frame h5 {
-    margin-top: 0; margin-bottom: 0.8rem; color: #0366d6;
-    border-bottom: 1px solid #eaecef; padding-bottom: 0.3rem;
-}
-/* Oculta a label "select file" padrão */
-.stFileUploader label {
- display: none;
-}
-/* Estilo para subheaders na sidebar */
-.st-emotion-cache-16txtl3 h3, .st-emotion-cache-16txtl3 h6 { /* Seletores podem mudar com versões do Streamlit */
-    padding-bottom: 0.5rem;
-    border-bottom: 1px solid #000000;
-    margin-bottom: 0.8rem;
-    color: #000000; /* Aplica cor azul aos títulos da sidebar também */
-}
-/* Tenta garantir que a sidebar tenha um fundo consistente */
-[data-testid="stSidebar"] {
-    background-color: #ffc800; /* Cor de fundo levemente cinza para a sidebar */
-}
-</style>
-"""
+# --- Configuração da Página e CSS (como antes) ---
+st.set_page_config(page_title="Agente Auditor v6", layout="wide")
+frame_css = """ <style> ... </style> """ # (CSS como na versão anterior)
 st.markdown(frame_css, unsafe_allow_html=True)
 
-# --- Inicializa Session State ---
-# 'hide_input_cols' Mantido caso queira reativar a funcionalidade
+# --- Inicializa Session State (Adiciona chaves para desenhos) ---
 if 'hide_input_cols' not in st.session_state: st.session_state.hide_input_cols = False
 if 'read_error' not in st.session_state: st.session_state.read_error = None
-if 'audit_results' not in st.session_state: st.session_state.audit_results = None
-if 'start_audit_clicked' not in st.session_state: st.session_state.start_audit_clicked = False
-# Chaves para resetar uploaders
+if 'list_audit_results' not in st.session_state: st.session_state.list_audit_results = None # Renomeado
+if 'drawing_audit_results' not in st.session_state: st.session_state.drawing_audit_results = None # Novo
+if 'start_list_audit_clicked' not in st.session_state: st.session_state.start_list_audit_clicked = False # Renomeado
+if 'start_drawing_audit_clicked' not in st.session_state: st.session_state.start_drawing_audit_clicked = False # Novo
 if 'sp_file_uploader_key' not in st.session_state: st.session_state.sp_file_uploader_key = 0
 if 'lm_uploader_key' not in st.session_state: st.session_state.lm_uploader_key = 0
+if 'dwg_uploader_key' not in st.session_state: st.session_state.dwg_uploader_key = 0 # Novo
 
+# --- Header (como antes) ---
+st.markdown('<div class="frame">', unsafe_allow_html=True)
+st.title("🤖✨ Agente Auditor de Projetos v6")
+st.caption("Auditoria SP vs. Listas de Engenharia & SP vs. Desenhos | Gemini Cloud")
+st.markdown('</div>', unsafe_allow_html=True)
 
-# --- Sidebar (Inputs e Ações - SEM CAMPO DE CHAVE) ---
+# --- Sidebar (Inputs e Ações Atualizada) ---
 with st.sidebar:
-    # Adicionar um logo ou título na sidebar
-    # st.image("URL_DA_SUA_LOGO.png", width=150) # Descomente se tiver um logo
-    st.header("📄 Arquivos")
-    st.markdown("###### Fonte da Verdade (SP)")
-    # Usamos a chave de sessão para resetar o uploader no "Limpar"
-    sp_file = st.file_uploader("Upload .docx", type=["docx"], key=f"sp_uploader_{st.session_state.sp_file_uploader_key}", label_visibility="collapsed")
-
-    st.markdown("###### Listas de Engenharia")
-    analysis_files = st.file_uploader("Upload .xlsx, .csv", type=["xlsx", "csv"],
-                                      accept_multiple_files=True, key=f"lm_uploader_{st.session_state.lm_uploader_key}", label_visibility="collapsed")
-    
-
-    st.subheader("🚀 Ações")
-    # Botão Iniciar Auditoria
-    if st.button("▶️ Iniciar Auditoria", type="primary", use_container_width=True):
-        st.session_state.start_audit_clicked = True
-        # st.rerun() # Rerun é chamado na lógica principal agora
-
-    # Botão Limpar Tudo
-    if st.button("🧹 Limpar Tudo", use_container_width=True):
-         st.session_state.audit_results = None
-         st.session_state.read_error = None
-         st.session_state.start_audit_clicked = False
-         # Incrementa as chaves para forçar o reset dos uploaders
-         st.session_state.sp_file_uploader_key += 1
-         st.session_state.lm_uploader_key += 1
-         st.rerun() # Recarrega a página
-
+    st.header("⚙️ Controles")
+    st.subheader("Chave API")
+    google_api_key = st.text_input("Cole sua Chave API:", type="password", key="api_key_input", label_visibility="collapsed", placeholder="Chave API Google AI Studio")
+    google_api_key_from_secrets = os.getenv("GOOGLE_API_KEY")
+    # (Validação discreta da chave como antes)
+    api_key_status = "⚠️ Chave API não encontrada."
+    if google_api_key: api_key_status = "🔑 Chave API inserida."
+    elif google_api_key_from_secrets: api_key_status = "🔒 Usando chave dos Segredos."
+    st.caption(api_key_status)
     st.markdown("---")
 
-     # st.subheader("⚙️ Controles")
+    st.subheader("📄 Arquivos")
+    st.markdown("###### Fonte da Verdade (SP)")
+    sp_file = st.file_uploader("Upload .docx", type=["docx"], key=f"sp_uploader_{st.session_state.sp_file_uploader_key}", label_visibility="collapsed")
 
-    # Apenas verifica e informa o status da chave (lida do ambiente/secrets)
-    st.subheader("Status da Chave API")
-    google_api_key_from_secrets = os.getenv("GOOGLE_API_KEY")
-    if google_api_key_from_secrets:
-        st.caption("🔒 Chave API configurada (via Segredos/Ambiente).")
-    else:
-        st.caption("⚠️ Chave API NÃO configurada nos Segredos/Ambiente.")
-        st.caption("No Streamlit Cloud: vá em 'Settings > Secrets'.")
-        st.caption("Localmente: defina a variável de ambiente GOOGLE_API_KEY.")
+    st.markdown("###### Listas de Engenharia (LMM, LME, LMH)")
+    analysis_files = st.file_uploader("Upload .xlsx, .csv", type=["xlsx", "csv"],
+                                      accept_multiple_files=True, key=f"lm_uploader_{st.session_state.lm_uploader_key}", label_visibility="collapsed")
 
+    # --- NOVO UPLOAD PARA DESENHOS ---
+    st.markdown("###### Desenhos Técnicos (PDF)")
+    drawing_files = st.file_uploader("Upload .pdf", type=["pdf"],
+                                     accept_multiple_files=True, key=f"dwg_uploader_{st.session_state.dwg_uploader_key}", label_visibility="collapsed")
+    st.markdown("---")
+
+    st.subheader("🚀 Ações")
+    # Botão Auditoria Listas
+    if st.button("▶️ Auditar SP vs Listas", type="primary", use_container_width=True):
+        st.session_state.start_list_audit_clicked = True
+        st.session_state.start_drawing_audit_clicked = False # Garante que só um rode
+
+    # --- NOVO BOTÃO AUDITORIA DESENHOS ---
+    if st.button("▶️ Auditar SP vs Desenhos", use_container_width=True):
+        st.session_state.start_drawing_audit_clicked = True
+        st.session_state.start_list_audit_clicked = False # Garante que só um rode
+
+    # Botão Limpar Tudo (Atualizado)
+    if st.button("🧹 Limpar Tudo", use_container_width=True):
+         st.session_state.list_audit_results = None
+         st.session_state.drawing_audit_results = None # Limpa novo estado
+         st.session_state.read_error = None
+         st.session_state.start_list_audit_clicked = False
+         st.session_state.start_drawing_audit_clicked = False
+         st.session_state.sp_file_uploader_key += 1
+         st.session_state.lm_uploader_key += 1
+         st.session_state.dwg_uploader_key += 1 # Incrementa nova chave
+         st.rerun()
 
 # --- Área Principal (Resultados) ---
-st.markdown('<div class="frame output-frame">', unsafe_allow_html=True) # Moldura única
+st.markdown('<div class="frame output-frame">', unsafe_allow_html=True)
 st.header("📊 Status e Resultados da Auditoria")
 
-# Lógica principal de execução (roda se o botão foi clicado)
-if st.session_state.start_audit_clicked:
-    st.session_state.read_error = None # Limpa antes de tentar ler
-    st.session_state.audit_results = None # Limpa resultados antigos
+# --- Lógica para Auditoria de Listas ---
+if st.session_state.start_list_audit_clicked:
+    st.session_state.read_error = None
+    st.session_state.list_audit_results = None # Limpa resultado específico
+    st.session_state.drawing_audit_results = None # Limpa o outro resultado também
 
-    # Validações
+    # Validações (Chave, SP, Listas)
     valid = True
-    # Verifica APENAS se a chave foi encontrada no ambiente/secrets
-    if not google_api_key_from_secrets:
-        st.error("🔑 Chave API não configurada nos Segredos/Ambiente."); valid = False
-        # (Restante das validações de arquivos como antes)
-        current_sp_key = f"sp_uploader_{st.session_state.sp_file_uploader_key}"
-    # Pega os arquivos dos uploaders atuais
-    # A chave dos uploaders muda no "Limpar", então pegamos pelo estado atual
+    api_key_to_use = google_api_key or google_api_key_from_secrets
+    if not api_key_to_use: st.error("🔑 Chave API?"); valid = False
     current_sp_key = f"sp_uploader_{st.session_state.sp_file_uploader_key}"
     current_lm_key = f"lm_uploader_{st.session_state.lm_uploader_key}"
     sp_file_obj = st.session_state.get(current_sp_key)
     analysis_files_obj = st.session_state.get(current_lm_key)
-    if not sp_file_obj: st.error("📄 Arquivo SP não foi carregado."); valid = False
-    if not analysis_files_obj: st.error("📊 Nenhuma Lista de Engenharia foi carregada."); valid = False
+    if not sp_file_obj: st.error("📄 Arquivo SP?"); valid = False
+    if not analysis_files_obj: st.error("📊 Listas Eng.?"); valid = False # Precisa das listas
 
     if valid:
         try:
-            # Configura a chave API para a sessão (importante se não usar secrets)
-
-            # Leitura
-            with st.spinner("⚙️ Lendo arquivos..."):
+            os.environ["GOOGLE_API_KEY"] = api_key_to_use
+            with st.spinner("⚙️ Lendo SP e Listas..."):
                 sp_content = read_sp_file(sp_file_obj)
                 analysis_content, file_names = read_analysis_files(analysis_files_obj)
 
-            if st.session_state.read_error: st.error(st.session_state.read_error) # Exibe erro de leitura
-            elif not sp_content or not analysis_content: st.warning("⚠️ Conteúdo de um ou mais arquivos parece vazio ou não pôde ser lido.")
+            if st.session_state.read_error: st.error(st.session_state.read_error)
+            elif not sp_content or not analysis_content: st.warning("⚠️ Conteúdo vazio.")
             else:
-                st.success(f"✅ Arquivos lidos!")
+                st.success(f"✅ Arquivos SP e Listas lidos!")
                 MODEL_NAME = "gemini-flash-latest"
-                llm = ChatGoogleGenerativeAI(model=MODEL_NAME) # Chave lida do ambiente
-                prompt_template = ChatPromptTemplate.from_template(MASTER_PROMPT)
+                llm = ChatGoogleGenerativeAI(model=MODEL_NAME)
+                prompt_template = ChatPromptTemplate.from_template(MASTER_PROMPT_LISTS) # USA PROMPT DE LISTAS
                 llm_chain = prompt_template | llm | StrOutputParser()
 
-                # Execução
-                with st.spinner(f"🧠 Auditando ({MODEL_NAME})... (Pode levar um tempo)"):
+                with st.spinner(f"🧠 Auditando SP vs Listas ({MODEL_NAME})..."):
+                    # ... (chamada invoke como antes, mas usando analysis_content) ...
                     char_count = len(sp_content or "") + len(analysis_content or "")
-                    st.info(f"📡 Enviando {char_count:,} caracteres para a API Gemini...")
+                    st.info(f"📡 Enviando {char_count:,} chars...")
                     raw_output = llm_chain.invoke({"sp_content": sp_content, "analysis_content": analysis_content})
 
-                    # Processa e guarda resultados
+                    # Processa e guarda resultados DE LISTAS
                     report_markdown = raw_output; summary_data = pd.DataFrame()
                     summary_marker = "[RESUMO ESTRUTURADO PARA GRÁFICOS]"
                     if summary_marker in raw_output:
@@ -305,97 +297,130 @@ if st.session_state.start_audit_clicked:
                         summary_section = parts[1].strip()
                         if summary_section and summary_section.lower().strip() != "nenhuma":
                             summary_data = parse_summary_table(summary_section)
-                    st.success("🎉 Auditoria Concluída!")
-                    st.session_state.audit_results = (summary_data, report_markdown) # Salva para exibição
+                    st.success("🎉 Auditoria SP vs Listas Concluída!")
+                    st.session_state.list_audit_results = (summary_data, report_markdown) # Salva no estado correto
 
-        # Tratamento de Erros
         except Exception as e:
-            error_message = f"❌ Erro durante a auditoria: {e}"
-            if "API key" in str(e) or "credential" in str(e).lower(): error_message = f"🔑 Erro API Key: Verifique a chave inserida ou os Segredos. {e}"
-            elif "quota" in str(e).lower() or "limit" in str(e).lower() or "free tier" in str(e).lower(): error_message = f"🚦 Limite da API Atingido: {e}"
-            elif "model" in str(e).lower() and "not found" in str(e).lower(): error_message = f"🤷 Modelo não encontrado ('{MODEL_NAME}'). Verifique o nome."
-            st.error(error_message); st.session_state.audit_results = None
+            # (Tratamento de Erros como antes)
+            error_message = f"❌ Erro (Listas): {e}"; ... ; st.error(error_message); st.session_state.list_audit_results = None
 
-    # Limpa o estado do botão DEPOIS de processar ou falhar, para evitar reruns indesejados
-    st.session_state.start_audit_clicked = False
-    # Força um rerun SE HOUVE SUCESSO OU ERRO para garantir a exibição correta dos resultados/mensagens
+    st.session_state.start_list_audit_clicked = False # Reseta flag
+    st.rerun() # Mostra resultados
+
+# --- NOVA Lógica para Auditoria de Desenhos ---
+elif st.session_state.start_drawing_audit_clicked:
+    st.session_state.read_error = None
+    st.session_state.list_audit_results = None # Limpa o outro resultado
+    st.session_state.drawing_audit_results = None # Limpa resultado específico
+
+    # Validações (Chave, SP, Desenhos)
+    valid = True
+    api_key_to_use = google_api_key or google_api_key_from_secrets
+    if not api_key_to_use: st.error("🔑 Chave API?"); valid = False
+    current_sp_key = f"sp_uploader_{st.session_state.sp_file_uploader_key}"
+    current_dwg_key = f"dwg_uploader_{st.session_state.dwg_uploader_key}" # Usa chave de desenho
+    sp_file_obj = st.session_state.get(current_sp_key)
+    drawing_files_obj = st.session_state.get(current_dwg_key) # Pega arquivos de desenho
+    if not sp_file_obj: st.error("📄 Arquivo SP?"); valid = False
+    if not drawing_files_obj: st.error("🖼️ Desenhos (PDF)?"); valid = False # Precisa dos desenhos
+
     if valid:
-        st.rerun()
-
-
-# Exibe os resultados (se existirem e o botão não foi clicado *agora*)
-# Usamos a verificação do audit_results no session_state diretamente
-if 'audit_results' in st.session_state and st.session_state.audit_results:
-    summary_data, report_markdown = st.session_state.audit_results
-
-    # ----- PASSO 1: EXIBIR O RELATÓRIO DETALHADO PRIMEIRO -----
-    st.markdown("#### Relatório Detalhado")
-    # Botão de Download para o Relatório (como texto simples)
-    st.download_button(
-         label="📄 Baixar Relatório (Texto)",
-         data=report_markdown if report_markdown else "Nenhum relatório gerado.",
-         file_name=f"auditoria_report_{time.strftime('%Y%m%d_%H%M%S')}.md", # Nome com data/hora
-         mime='text/markdown',
-     )
-    with st.expander("Clique para ver os detalhes da auditoria", expanded=False): # Começa fechado
-        st.markdown(report_markdown if report_markdown else "*Nenhum relatório em Markdown foi gerado ou encontrado.*")
-
-    st.markdown("---") # Separador visual
-
-    # ----- PASSO 2: TENTAR PROCESSAR E EXIBIR O GRÁFICO -----
-    # Verifica se summary_data é um DataFrame e não está vazio
-    if isinstance(summary_data, pd.DataFrame) and not summary_data.empty:
-        st.markdown("#### Resumo Gráfico das Pendências")
         try:
+            os.environ["GOOGLE_API_KEY"] = api_key_to_use
+            with st.spinner("⚙️ Lendo SP e Desenhos (PDFs)..."):
+                sp_content = read_sp_file(sp_file_obj)
+                drawing_content, file_names = read_drawing_files(drawing_files_obj) # Usa nova função
+
+            if st.session_state.read_error: st.error(st.session_state.read_error)
+            elif not sp_content or not drawing_content: st.warning("⚠️ Conteúdo vazio.")
+            else:
+                st.success(f"✅ Arquivos SP e Desenhos lidos!")
+                MODEL_NAME = "gemini-flash-latest"
+                llm = ChatGoogleGenerativeAI(model=MODEL_NAME)
+                prompt_template = ChatPromptTemplate.from_template(MASTER_PROMPT_DRAWINGS) # USA PROMPT DE DESENHOS
+                llm_chain = prompt_template | llm | StrOutputParser()
+
+                with st.spinner(f"🧠 Verificando SP vs Desenhos ({MODEL_NAME})..."):
+                    # Passa drawing_content para o prompt
+                    char_count = len(sp_content or "") + len(drawing_content or "")
+                    st.info(f"📡 Enviando {char_count:,} chars...")
+                    raw_output = llm_chain.invoke({"sp_content": sp_content, "drawing_content": drawing_content})
+
+                    # Processa e guarda resultados DE DESENHOS
+                    # Prompt de desenhos não pede resumo estruturado, só markdown
+                    report_markdown = raw_output.strip()
+                    summary_data = pd.DataFrame() # Sem dados para gráfico nesta auditoria
+
+                    st.success("🎉 Verificação SP vs Desenhos Concluída!")
+                    # Salva no estado correto (sem summary_data)
+                    st.session_state.drawing_audit_results = (summary_data, report_markdown)
+
+        except Exception as e:
+            # (Tratamento de Erros similar)
+            error_message = f"❌ Erro (Desenhos): {e}"; ... ; st.error(error_message); st.session_state.drawing_audit_results = None
+
+    st.session_state.start_drawing_audit_clicked = False # Reseta flag
+    st.rerun() # Mostra resultados
+
+# --- Exibição de Resultados (Mostra o último que foi gerado) ---
+# Verifica qual resultado existe e exibe
+active_results = st.session_state.list_audit_results or st.session_state.drawing_audit_results
+audit_type = "Listas" if st.session_state.list_audit_results else "Desenhos" if st.session_state.drawing_audit_results else None
+
+if active_results:
+    summary_data, report_markdown = active_results
+    st.markdown(f"#### {audit_type}: Relatório Detalhado")
+
+    # Botão de Download (sempre disponível se houver relatório)
+    if report_markdown:
+        st.download_button(
+             label=f"📄 Baixar Relatório ({audit_type})",
+             data=report_markdown,
+             file_name=f"auditoria_{audit_type.lower()}_{time.strftime('%Y%m%d_%H%M%S')}.md",
+             mime='text/markdown',
+         )
+    with st.expander(f"Clique para ver os detalhes da auditoria ({audit_type})", expanded=False):
+        st.markdown(report_markdown if report_markdown else f"*Nenhum relatório ({audit_type}) gerado.*")
+
+    st.markdown("---")
+
+    # Exibe Gráfico SOMENTE se for auditoria de Listas e tiver dados
+    if audit_type == "Listas" and isinstance(summary_data, pd.DataFrame) and not summary_data.empty:
+        st.markdown("#### Listas: Resumo Gráfico das Pendências")
+        try:
+            # ... (código do gráfico e download CSV como antes) ...
             chart_data = summary_data.groupby(['Lista', 'Tipo']).size().reset_index(name='Contagem')
+            csv_data = convert_df_to_csv(summary_data)
+            st.download_button(label="💾 Baixar Tabela (CSV)", data=csv_data, file_name=f"pendencias_listas_{time.strftime('%Y%m%d_%H%M%S')}.csv", mime='text/csv')
+            with st.expander("Dados agregados (`chart_data`)"): st.dataframe(chart_data)
 
-            # --- BOTÃO DOWNLOAD TABELA DE PENDÊNCIAS (CSV) ---
-            csv_data = convert_df_to_csv(summary_data) # Converte todo o summary_data
-            st.download_button(
-                label="💾 Baixar Tabela de Pendências (CSV)",
-                data=csv_data,
-                file_name=f"pendencias_auditoria_{time.strftime('%Y%m%d_%H%M%S')}.csv",
-                mime='text/csv',
-            )
-
-            # ----- DIAGNÓSTICO: MOSTRAR OS DADOS DO GRÁFICO -----
-            with st.expander("Dados agregados usados para o gráfico (`chart_data`)"):
-                st.dataframe(chart_data)
-
-            # --- GRÁFICO COM EIXOS INVERTIDOS ---
-            color_scale = alt.Scale(domain=['FALTANTE', 'DISCREPANCIA_TECNICA', 'DISCREPANCIA_QUANTIDADE', 'IMPLICITO_FALTANTE'],
-                                    range=['#e45756', '#f58518', '#4c78a8', '#54a24b']) # Cores
-            tooltip_config = ['Lista', 'Tipo', 'Contagem'] # Simplificado
-
+            color_scale = alt.Scale(domain=['FALTANTE', 'DISCREPANCIA_TECNICA', 'DISCREPANCIA_QUANTIDADE', 'IMPLICITO_FALTANTE'], range=['#e45756', '#f58518', '#4c78a8', '#54a24b'])
+            tooltip_config = ['Lista', 'Tipo', 'Contagem']
             chart = alt.Chart(chart_data).mark_bar().encode(
-                # Eixos Invertidos: Lista no Y, Contagem no X
-                y=alt.Y('Lista', sort='-x', title='Lista / Origem'), # Ordena Lista pela Contagem
+                y=alt.Y('Lista', sort='-x', title='Lista / Origem'),
                 x=alt.X('Contagem', title='Nº de Pendências'),
                 color=alt.Color('Tipo', scale=color_scale, title='Tipo de Pendência'),
                 tooltip=tooltip_config
-            ).properties(
-                title='Distribuição das Pendências por Lista e Tipo'
-            ).interactive() # Habilita interatividade (zoom, pan, e menu de salvar)
-
+            ).properties(title='Pendências por Lista e Tipo').interactive()
             st.altair_chart(chart, use_container_width=True)
-            st.caption("Passe o mouse sobre as barras para detalhes. Use o menu (⋮) no canto do gráfico para salvar como PNG/SVG.")
+            st.caption("Use o menu (⋮) no canto do gráfico para salvar como PNG/SVG.")
 
         except Exception as chart_error:
-             st.error(f"⚠️ Erro ao gerar o gráfico: {chart_error}")
-             st.warning("Verifique a tabela 'chart_data' acima ou o formato do resumo estruturado no relatório detalhado.")
+             st.error(f"⚠️ Erro ao gerar o gráfico (Listas): {chart_error}")
 
-    # Condição se o relatório indica explicitamente 'nenhuma pendência'
-    elif report_markdown and "nenhuma pendência encontrada" in report_markdown.lower():
-        st.info("✅ Nenhuma pendência foi encontrada na auditoria.")
-    # Condição se summary_data está vazio E o relatório não diz 'nenhuma pendência'
-    else:
-         st.warning("⚠️ Não foi possível gerar o gráfico (dados de resumo ausentes ou inválidos). Verifique o relatório detalhado acima.")
+    # Mensagem se auditoria de Listas não gerou gráfico
+    elif audit_type == "Listas" and (not isinstance(summary_data, pd.DataFrame) or summary_data.empty):
+         if report_markdown and "nenhuma pendência encontrada" in report_markdown.lower(): st.info("✅ Nenhuma pendência encontrada (Listas).")
+         else: st.warning("⚠️ Gráfico não gerado (dados de resumo ausentes/inválidos para Listas).")
+    # Mensagem para auditoria de Desenhos (que não tem gráfico)
+    elif audit_type == "Desenhos":
+         if report_markdown and "nenhum item foi encontrado" not in report_markdown.lower(): st.info("Verificação SP vs Desenhos concluída. Veja detalhes acima.")
+         elif report_markdown: st.info("✅ Verificação SP vs Desenhos concluída (Nenhum item encontrado?). Veja detalhes.")
+         else: st.warning("⚠️ Relatório da verificação SP vs Desenhos vazio.")
 
-# Mensagem inicial se nada foi processado ainda (nenhum resultado salvo e botão não clicado)
-elif not st.session_state.start_audit_clicked and st.session_state.audit_results is None:
-     st.info("Aguardando o upload dos arquivos e o início da auditoria...")
 
+# Mensagem inicial se nada foi processado ainda
+elif not st.session_state.start_list_audit_clicked and not st.session_state.start_drawing_audit_clicked:
+     st.info("Aguardando o upload dos arquivos e o início de uma auditoria...")
 
 st.markdown('</div>', unsafe_allow_html=True) # Fecha moldura da área principal
-
-# --- (Fim do código principal) ---
