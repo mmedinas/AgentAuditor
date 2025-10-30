@@ -205,12 +205,14 @@ if 'lm_uploader_key' not in st.session_state: st.session_state.lm_uploader_key =
 with st.sidebar:
     st.image("https://raw.githubusercontent.com/mmedinas/AgentAuditor/main/LOGO_MOBILE.png", width=150)
     #st.header("⚙️ Controles")
-  
+
+    st.header("🤖 MOBILETRON 3000")
+    
     st.header("📄 Arquivos")
-    st.markdown("###### Fonte da Verdade (SP)")
+    st.markdown("###### Documento de Entrada (SP)")
     sp_file = st.file_uploader("Upload .docx", type=["docx"], key=f"sp_uploader_{st.session_state.sp_file_uploader_key}", label_visibility="collapsed")
 
-    st.markdown("###### Listas de Engenharia (LMM, LME, LMH)")
+    st.markdown("###### Listas de Engenharia")
     analysis_files = st.file_uploader("Upload .xlsx, .csv", type=["xlsx", "csv"],
                                       accept_multiple_files=True, key=f"lm_uploader_{st.session_state.lm_uploader_key}", label_visibility="collapsed")
     
@@ -394,6 +396,7 @@ elif not st.session_state.start_audit_clicked and st.session_state.audit_results
 st.markdown('</div>', unsafe_allow_html=True) # Fecha moldura da área principal
 
 # --- (Fim do código principal) ---
+
 
 
 
