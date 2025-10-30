@@ -250,7 +250,7 @@ with st.sidebar:
          st.rerun() # Recarrega a página
 
 # --- Área Principal (Resultados) ---
-st.markdown('<div class="frame output-frame">', unsafe_allow_html=True) # Moldura única
+#st.markdown('<div class="frame output-frame">', unsafe_allow_html=True) # Moldura única
 st.header("📊 Status e Resultados da Auditoria")
 
 # Lógica principal de execução (roda se o botão foi clicado)
@@ -397,3 +397,4 @@ elif not st.session_state.start_audit_clicked and st.session_state.audit_results
 st.markdown('</div>', unsafe_allow_html=True) # Fecha moldura da área principal
 
 # --- (Fim do código principal) ---
+
