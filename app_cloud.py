@@ -348,4 +348,77 @@ elif st.session_state.start_extract_clicked:
 active_results = st.session_state.audit_results or st.session_state.extract_results
 audit_type = None
 if st.session_state.audit_results: audit_type = "Auditoria"
-elif st.session_state.
+elif st.session_state.extract_results: audit_type = "Extração da SP"
+
+if active_results:
+    summary_data, report_markdown = active_results
+    st.markdown(f"#### {audit_type}: Relatório Detalhado")
+
+    # Botão de Download para o Relatório (sempre disponível)
+    st.download_button(
+         label=f"📄 Baixar Relatório ({audit_type}) (Markdown)",
+         data=report_markdown if report_markdown else "Nenhum relatório gerado.",
+         file_name=f"relatorio_{audit_type.lower().replace(' ', '_')}_{time.strftime('%Y%m%d_%H%M%S')}.md",
+         mime='text/markdown',
+     )
+    
+    # --- BOTÃO DE DOWNLOAD CSV (ATUALIZADO) ---
+    if isinstance(summary_data, pd.DataFrame) and not summary_data.empty:
+        csv_data = convert_df_to_csv(summary_data)
+        file_name_prefix = "pendencias_auditoria" if audit_type == "Auditoria" else "lista_mestra_extracao" # Nome do arquivo dinâmico
+        st.download_button(
+            label=f"💾 Baixar Tabela ({audit_type}) (CSV)", # Label dinâmica
+            data=csv_data,
+            file_name=f"{file_name_prefix}_{time.strftime('%Y%m%d_%H%M%S')}.csv",
+            mime='text/csv',
+        )
+
+    # Expander para o relatório de texto
+    with st.expander(f"Clique para ver os detalhes ({audit_type})", expanded=True):
+        st.markdown(report_markdown if report_markdown else f"*Nenhum relatório ({audit_type}) gerado.*")
+
+    st.markdown("---") 
+
+    # ----- Exibe o Gráfico SOMENTE se for 'Auditoria' -----
+    if audit_type == "Auditoria" and isinstance(summary_data, pd.DataFrame) and not summary_data.empty:
+        st.markdown("#### Resumo Gráfico das Pendências")
+        try:
+            chart_data = summary_data.groupby(['Lista', 'Tipo']).size().reset_index(name='Contagem')
+            # (Removido o expander de 'chart_data' conforme sua solicitação)
+            color_scale = alt.Scale(domain=['FALTANTE', 'DISCREPANCIA_TECNICA', 'DISCREPANCIA_QUANTIDADE', 'IMPLICITO_FALTANTE'],
+                                    range=['#e45756', '#f58518', '#4c78a8', '#54a24b']) 
+            tooltip_config = ['Lista', 'Tipo', 'Contagem'] 
+            chart = alt.Chart(chart_data).mark_bar().encode(
+                y=alt.Y('Lista', sort='-x', title='Lista / Origem'),
+                x=alt.X('Contagem', title='Nº de Pendências'),
+                color=alt.Color('Tipo', scale=color_scale, title='Tipo de Pendência'),
+                tooltip=tooltip_config
+            ).properties(
+                title='Distribuição das Pendências por Lista e Tipo'
+            ).interactive()
+            st.altair_chart(chart, use_container_width=True)
+            st.caption("Use o menu (⋮) no canto do gráfico para salvar como PNG/SVG.")
+        except Exception as chart_error:
+             st.error(f"⚠️ Erro ao gerar o gráfico: {chart_error}")
+    
+    elif audit_type == "Auditoria":
+         if report_markdown and "nenhuma pendência encontrada" in report_markdown.lower(): st.info("✅ Nenhuma pendência encontrada (Auditoria).")
+         else: st.warning("⚠️ Gráfico não gerado (dados de resumo ausentes/inválidos para Auditoria).")
+    
+    # --- EXIBIÇÃO PARA EXTRAÇÃO ---
+    elif audit_type == "Extração da SP":
+        st.info("✅ Lista Mestra extraída. Veja o relatório e use o botão 'Baixar Tabela (CSV)' para o arquivo de dados.")
+        if isinstance(summary_data, pd.DataFrame) and not summary_data.empty:
+             with st.expander("Visualizar Tabela de Extração (Dados do CSV)"):
+                st.dataframe(summary_data) # Mostra a tabela key-value
+
+# Mensagem inicial se nada foi processado ainda
+elif (not st.session_state.start_audit_clicked and 
+      not st.session_state.start_extract_clicked and 
+      st.session_state.audit_results is None and 
+      st.session_state.extract_results is None):
+     st.info("Aguardando o upload dos arquivos e o início de uma auditoria...")
+
+# st.markdown('</div>', unsafe_allow_html=True) # Moldura (comentada)
+
+# --- (Fim do código principal) ---
