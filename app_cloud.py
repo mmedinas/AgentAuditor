@@ -263,7 +263,7 @@ frame_css = """
     padding-bottom: 0.5rem;
     border-bottom: 1px solid #eaecef;
     margin-bottom: 0.8rem;
-    color: #0366d6; /* Aplica cor azul aos títulos da sidebar também */
+    color: #ffa804; /* Aplica cor azul aos títulos da sidebar também */
 }
 /* Tenta garantir que a sidebar tenha um fundo consistente */
 [data-testid="stSidebar"] {
@@ -575,3 +575,4 @@ elif (not st.session_state.start_audit_clicked and
 # st.markdown('</div>', unsafe_allow_html=True) # Moldura (comentada conforme seu v5)
 
 # --- (Fim do código principal) ---
+
