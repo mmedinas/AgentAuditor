@@ -203,7 +203,7 @@ if 'lm_uploader_key' not in st.session_state: st.session_state.lm_uploader_key =
 
 # --- Sidebar (Inputs e Ações) ---
 with st.sidebar:
-    st.image("https://github.com/mmedinas/AgentAuditor/blob/main/LOGO_MOBILE.png", width=150)
+    st.image("https://raw.githubusercontent.com/mmedinas/AgentAuditor/main/LOGO_MOBILE.png", width=150)
     #st.header("⚙️ Controles")
   
     st.header("📄 Arquivos")
@@ -394,6 +394,7 @@ elif not st.session_state.start_audit_clicked and st.session_state.audit_results
 st.markdown('</div>', unsafe_allow_html=True) # Fecha moldura da área principal
 
 # --- (Fim do código principal) ---
+
 
 
 
