@@ -238,13 +238,13 @@ if 'lm_uploader_key' not in st.session_state: st.session_state.lm_uploader_key =
 
 
 # --- Header (Removido da moldura) ---
-st.title("🤖✨ Agente Auditor v6")
-st.caption("Auditoria SP vs. Listas & Extração de Lista Mestra | Gemini Cloud")
+st.title("🤖✨ Agente Auditor V6")
+#st.caption("Auditoria SP vs. Listas & Extração de Lista Mestra | Gemini Cloud")
 
 # --- Sidebar (Inputs e Ações) ---
 with st.sidebar:
     st.image("https://raw.githubusercontent.com/mmedinas/AgentAuditor/main/LOGO_MOBILE.png", width=150)
-    st.header("⚙️ Controles")
+    #st.header("⚙️ Controles")
     
     #st.subheader("Chave API")
     #google_api_key_from_secrets = os.getenv("GOOGLE_API_KEY")
@@ -255,7 +255,7 @@ with st.sidebar:
 
     #st.markdown("---")
     
-    st.subheader("📄 Arquivos")
+    st.subheader("📄 UPLOADS")
     st.markdown("###### Documento de Entrada (SP)")
     sp_file = st.file_uploader("Upload .docx", type=["docx"], key=f"sp_uploader_{st.session_state.sp_file_uploader_key}", label_visibility="collapsed")
 
@@ -273,7 +273,7 @@ with st.sidebar:
         st.rerun() # Inicia a ação
     
     # --- NOVO BOTÃO DE EXTRAÇÃO ---
-    if st.button("▶️ Extrair Lista Mestra da SP", use_container_width=True):
+    if st.button("▶️ Extrair Lista de Equipamentos", use_container_width=True):
         st.session_state.start_audit_clicked = False # Garante que o outro está falso
         st.session_state.start_extract_clicked = True
         st.rerun() # Inicia a ação
@@ -504,5 +504,6 @@ elif (not st.session_state.start_audit_clicked and
 st.markdown('</div>', unsafe_allow_html=True) # Fecha moldura da área principal
 
 # --- (Fim do código principal) ---
+
 
 
