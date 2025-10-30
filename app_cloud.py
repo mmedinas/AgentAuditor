@@ -206,9 +206,9 @@ with st.sidebar:
     st.image("https://raw.githubusercontent.com/mmedinas/AgentAuditor/main/LOGO_MOBILE.png", width=150)
     #st.header("⚙️ Controles")
 
-    st.header("🤖 MOBILETRON 3000")
+    # st.header("🤖 MOBILETRON 3000")
     
-    st.header("📄 Arquivos")
+    st.header("📄 UPLOADS")
     st.markdown("###### Documento de Entrada (SP)")
     sp_file = st.file_uploader("Upload .docx", type=["docx"], key=f"sp_uploader_{st.session_state.sp_file_uploader_key}", label_visibility="collapsed")
 
@@ -396,6 +396,7 @@ elif not st.session_state.start_audit_clicked and st.session_state.audit_results
 st.markdown('</div>', unsafe_allow_html=True) # Fecha moldura da área principal
 
 # --- (Fim do código principal) ---
+
 
 
 
