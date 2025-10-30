@@ -246,14 +246,14 @@ with st.sidebar:
     st.image("https://raw.githubusercontent.com/mmedinas/AgentAuditor/main/LOGO_MOBILE.png", width=150)
     #st.header("⚙️ Controles")
     
-    #st.subheader("Chave API")
-    #google_api_key_from_secrets = os.getenv("GOOGLE_API_KEY")
-    #if google_api_key_from_secrets:
-    #    st.caption("🔒 Chave API configurada (via Segredos/Ambiente).")
-    #else:
-    #    st.caption("⚠️ Chave API NÃO configurada. Configure em 'Settings > Secrets'.")
+    st.subheader("Chave API")
+    google_api_key_from_secrets = os.getenv("GOOGLE_API_KEY")
+    if google_api_key_from_secrets:
+        st.caption("🔒 Chave API configurada (via Segredos/Ambiente).")
+    else:
+        st.caption("⚠️ Chave API NÃO configurada. Configure em 'Settings > Secrets'.")
 
-    #st.markdown("---")
+    st.markdown("---")
     
     st.subheader("📄 UPLOADS")
     st.markdown("###### Documento de Entrada (SP)")
@@ -504,6 +504,7 @@ elif (not st.session_state.start_audit_clicked and
 st.markdown('</div>', unsafe_allow_html=True) # Fecha moldura da área principal
 
 # --- (Fim do código principal) ---
+
 
 
 
