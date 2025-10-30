@@ -238,13 +238,13 @@ with st.sidebar:
 
     st.subheader("Chave API")
     # Removido o st.text_input daqui para usar apenas Secrets/Env
-    google_api_key_from_secrets = os.getenv("GOOGLE_API_KEY")
-    if google_api_key_from_secrets:
-        st.caption("🔒 Chave API configurada (via Segredos/Ambiente).")
-    else:
-        st.caption("⚠️ Chave API NÃO configurada nos Segredos/Ambiente.")
-        st.caption("No Streamlit Cloud: vá em 'Settings > Secrets'.")
-        st.caption("Localmente: defina a variável de ambiente GOOGLE_API_KEY.")
+    # google_api_key_from_secrets = os.getenv("GOOGLE_API_KEY")
+    # if google_api_key_from_secrets:
+    #     st.caption("🔒 Chave API configurada (via Segredos/Ambiente).")
+    # else:
+    #     st.caption("⚠️ Chave API NÃO configurada nos Segredos/Ambiente.")
+    #     st.caption("No Streamlit Cloud: vá em 'Settings > Secrets'.")
+    #     st.caption("Localmente: defina a variável de ambiente GOOGLE_API_KEY.")
 
 # --- Área Principal (Resultados) ---
 #st.markdown('<div class="frame output-frame">', unsafe_allow_html=True) # Moldura única
@@ -394,6 +394,7 @@ elif not st.session_state.start_audit_clicked and st.session_state.audit_results
 st.markdown('</div>', unsafe_allow_html=True) # Fecha moldura da área principal
 
 # --- (Fim do código principal) ---
+
 
 
 
