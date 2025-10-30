@@ -197,10 +197,10 @@ st.set_page_config(page_title="Agente Auditor v6", layout="wide") # v6 agora
 frame_css = """
 <style>
 /* Estilo base da moldura */
-.frame {
+/*.frame {
     border: 1px solid #e1e4e8; border-radius: 6px; padding: 1rem;
     background-color: #ffa804; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    margin-bottom: 1rem; min-height: 400px; /* Altura mínima para a área de resultados */
+    margin-bottom: 1rem; min-height: 400px; *//* Altura mínima para a área de resultados */
 }
 /* Estilo dos títulos dentro da moldura principal */
 .frame h3, .frame h4, .frame h5 {
@@ -220,7 +220,7 @@ frame_css = """
 }
 /* Tenta garantir que a sidebar tenha um fundo consistente */
 [data-testid="stSidebar"] {
-    background-color: #F8F9FA; /* Cor de fundo levemente cinza para a sidebar */
+    background-color: #ffa804; /* Cor de fundo levemente cinza para a sidebar */
 }
 </style>
 """
@@ -504,4 +504,5 @@ elif (not st.session_state.start_audit_clicked and
 st.markdown('</div>', unsafe_allow_html=True) # Fecha moldura da área principal
 
 # --- (Fim do código principal) ---
+
 
