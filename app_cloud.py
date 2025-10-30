@@ -186,7 +186,7 @@ frame_css = """
 }
 /* Tenta garantir que a sidebar tenha um fundo consistente */
 [data-testid="stSidebar"] {
-    background-color: #F8F9FA; /* Cor de fundo levemente cinza para a sidebar */
+    background-color: #e09a02; /* Cor de fundo levemente cinza para a sidebar */
 }
 </style>
 """
@@ -399,5 +399,6 @@ elif not st.session_state.start_audit_clicked and st.session_state.audit_results
 st.markdown('</div>', unsafe_allow_html=True) # Fecha moldura da área principal
 
 # --- (Fim do código principal) ---
+
 
 
