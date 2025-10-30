@@ -263,11 +263,11 @@ frame_css = """
     padding-bottom: 0.5rem;
     border-bottom: 1px solid #eaecef;
     margin-bottom: 0.8rem;
-    color: #ffa804; /* Aplica cor azul aos títulos da sidebar também */
+    color: #0597ff; /* Aplica cor azul aos títulos da sidebar também */
 }
 /* Tenta garantir que a sidebar tenha um fundo consistente */
 [data-testid="stSidebar"] {
-    background-color: #F8F9FA; /* <-- ALTERADO de volta para uma cor neutra */
+    background-color: #ffa804; /* <-- ALTERADO de volta para uma cor neutra */
 }
 </style>
 """
@@ -575,4 +575,5 @@ elif (not st.session_state.start_audit_clicked and
 # st.markdown('</div>', unsafe_allow_html=True) # Moldura (comentada conforme seu v5)
 
 # --- (Fim do código principal) ---
+
 
