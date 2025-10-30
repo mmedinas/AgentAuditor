@@ -236,7 +236,7 @@ with st.sidebar:
          st.session_state.lm_uploader_key += 1
          st.rerun() # Recarrega a página
 
-    st.subheader("Chave API")
+    # st.subheader("Chave API")
     # Removido o st.text_input daqui para usar apenas Secrets/Env
     # google_api_key_from_secrets = os.getenv("GOOGLE_API_KEY")
     # if google_api_key_from_secrets:
@@ -394,6 +394,7 @@ elif not st.session_state.start_audit_clicked and st.session_state.audit_results
 st.markdown('</div>', unsafe_allow_html=True) # Fecha moldura da área principal
 
 # --- (Fim do código principal) ---
+
 
 
 
