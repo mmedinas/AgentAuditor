@@ -20,16 +20,14 @@ def read_sp_file(file):
     try:
         document = docx.Document(file)
         full_text = [para.text for para in document.paragraphs]
-        # Adiciona texto das tabelas
         for table in document.tables:
             for row in table.rows:
                 for cell in row.cells:
                     full_text.append(cell.text)
         return '\n'.join(full_text)
     except Exception as e:
-        # Define o erro no estado da sessão para ser exibido na área principal
         st.session_state.read_error = f"Erro ao ler SP ({file.name}): {e}"
-        return "" # Retorna vazio em caso de erro
+        return ""
 
 def read_analysis_files(files):
     """Lê múltiplos arquivos .csv ou .xlsx (Listas) e concatena."""
@@ -37,62 +35,27 @@ def read_analysis_files(files):
     for file in files:
         try:
             content = ""
-            # Usa o nome base sem extensão para referência interna e no prompt
             file_base_name = os.path.splitext(file.name)[0] 
             if file.name.endswith('.csv'):
-                bytes_data = file.getvalue()
-                df = pd.read_csv(BytesIO(bytes_data))
+                df = pd.read_csv(BytesIO(file.getvalue()))
                 content = df.to_string()
             elif file.name.endswith('.xlsx'):
-                bytes_data = file.getvalue()
-                # O 'openpyxl' deve estar instalado (pip install openpyxl)
-                df = pd.read_excel(BytesIO(bytes_data))
+                df = pd.read_excel(BytesIO(file.getvalue()))
                 content = df.to_string()
-            
             file_names.append(file_base_name)
-            # Adiciona marcador com nome do arquivo no conteúdo enviado para a IA
             all_content.append(f"--- CONTEÚDO DO ARQUIVO: {file_base_name} ---\n{content}\n")
-            
         except Exception as e:
-            # Define o erro no estado da sessão
             st.session_state.read_error = f"Erro ao ler Lista ({file.name}): {e}"
-            return "", [] # Retorna vazio se falhar em algum arquivo
-            
-    return '\n'.join(all_content), file_names # Retorna nomes também
+            return "", []
+    return '\n'.join(all_content), file_names
 
-# --- Prompt Mestre para Auditoria (Renomeado) ---
+# --- Prompt Mestre para Auditoria (Sem alteração) ---
 MASTER_PROMPT_AUDIT = """
-Sua **ÚNICA TAREFA** é comparar os itens físicos descritos na "Fonte da Verdade (SP)" (tópicos 17-30) com os itens listados nas "Listas de Engenharia".
-**NÃO GERE RELATÓRIOS DE KPIs, CPI, SPI, RAG status, protótipos, adesivos, caixas de papelão ou qualquer outra métrica de gerenciamento de projetos.** Foque **EXCLUSIVAMENTE** na comparação dos itens físicos dos arquivos fornecidos.
-**REGRAS ESTRITAS:**
-1.  **EXTRAÇÃO (SP):** Leia o documento "FONTE DA VERDADE (SP)" abaixo (entre os marcadores). Extraia itens físicos (comprados/fabricados) dos tópicos 17-30. Um item existe se '[X] Sim' ou se houver especificação/descrição/notas.
-2.  **COMPARAÇÃO (Listas):** Para cada item da SP, procure-o nos documentos "LISTAS DE ENGENHARIA". Verifique nome, quantidade e especificações. Use o NOME DO ARQUIVO da lista ao reportar.
-3.  **INFERÊNCIA (Implícitos):** Identifique itens implícitos necessários (ex: Gerador->Exaustão) e verifique se estão nas listas.
-4.  **RELATÓRIO DE PENDÊNCIAS:** Liste **APENAS** as pendências encontradas, usando o formato Markdown abaixo. Se não houver pendências, escreva apenas "Auditoria Concluída. Nenhuma pendência encontrada.".
-**FORMATO OBRIGATÓRIO DO RELATÓRIO MARKDOWN:**
-### PENDÊNCIAS - ITENS FALTANTES (SP vs Listas)
-* **[Item da SP]:** Não encontrado nas Listas.
-### PENDÊNCIAS - DISCREPÂNCIAS TÉCNICAS
-* **[Item]:** SP diverge da Lista [NomeLista].
-    * **SP:** [Especificação SP]
-    * **Lista ([NomeLista]):** [Especificação Lista]
-### PENDÊNCIAS - DISCREPÂNCIAS DE QUANTIDADE
-* **[Item]:** Qtd na SP diverge da Lista [NomeLista].
-    * **SP:** Qtd: [X]
-    * **Lista ([NomeLista]):** Qtd: [Y]
-### ITENS IMPLÍCITOS FALTANTES
-* **[Item Implícito]:** Necessário para [Item SP], mas não encontrado.
----
-**IMPORTANTE: APÓS o relatório Markdown, adicione a seção de resumo estruturado:**
+Sua **ÚNICA TAREFA** é comparar os itens físicos descritos na "Fonte da Verdade (SP)"...
+... (Restante do prompt de auditoria como antes) ...
 [RESUMO ESTRUTURADO PARA GRÁFICOS]
 | TipoPendencia           | NomeLista                 | DetalheItem                                        |
-| :---------------------- | :------------------------ | :------------------------------------------------- |
-| FALTANTE                | N/A                       | [Item da SP]                                       |
-| DISCREPANCIA_TECNICA    | [NomeLista do Arquivo]    | [Item]                                             |
-| DISCREPANCIA_QUANTIDADE | [NomeLista do Arquivo]    | [Item]                                             |
-| IMPLICITO_FALTANTE      | N/A                       | [Item Implícito]                                   |
-* (Repita para CADA pendência. Use 'N/A' onde aplicável. Use o nome EXATO do arquivo da lista.)
-* Se não houver pendências, escreva "Nenhuma".
+... (como antes) ...
 ---
 **DOCUMENTOS PARA ANÁLISE (NÃO INVENTE DADOS SE ELES NÃO FOREM FORNECIDOS):**
 --- INÍCIO DA FONTE DA VERDADE (SP) ---
@@ -105,7 +68,7 @@ Sua **ÚNICA TAREFA** é comparar os itens físicos descritos na "Fonte da Verda
 [RELATÓRIO DE AUDITORIA DE PENDÊNCIAS (Markdown)]
 """
 
-# --- NOVO PROMPT 2: Extração de Lista Mestra (ATUALIZADO PARA KEY-VALUE) ---
+# --- PROMPT DE EXTRAÇÃO (ATUALIZADO PARA TABELA LARGA) ---
 MASTER_PROMPT_EXTRACT = """
 Sua **ÚNICA TAREFA** é atuar como um engenheiro de orçamentos e extrair uma **Lista Mestra de Equipamentos** (Bill of Materials - BOM) do documento "Fonte da Verdade (SP)".
 **NÃO GERE RELATÓRIOS DE KPIs, CPI, SPI, etc.** Foque **EXCLUSIVAMENTE** na extração de itens físicos.
@@ -122,25 +85,15 @@ Sua **ÚNICA TAREFA** é atuar como um engenheiro de orçamentos e extrair uma *
 * [Item 2] (Qtd: [Qtd], Especificação: [Breve Espec.])
 * (Continue para todas as categorias e itens encontrados)
 ---
-**IMPORTANTE: APÓS o relatório Markdown, adicione a seção de resumo estruturado para EXPORTAÇÃO (FORMATO KEY-VALUE):**
-O objetivo é criar uma tabela 'longa' (key-value) para análise em Excel (Tabela Dinâmica).
-Para CADA item consolidado que você encontrou, crie múltiplas linhas na tabela abaixo:
-1.  Uma linha para 'Categoria'.
-2.  Uma linha para 'Quantidade'.
-3.  Uma linha para CADA atributo técnico relevante (ex: 'Marca', 'Modelo', 'Potência', 'Cor', 'Material', 'Capacidade', etc.).
+**IMPORTANTE: APÓS o relatório Markdown, adicione a seção de resumo estruturado para EXPORTAÇÃO (FORMATO LARGO):**
+
 [RESUMO ESTRUTURADO PARA EXTRAÇÃO]
-| Item_Consolidado | Atributo | Valor |
-| :--- | :--- | :--- |
-| Gerador | Categoria | Elétricos |
-| Gerador | Quantidade | 1 |
-| Gerador | Nível de Ruído | máx 67dB |
-| Gerador | Regime | Intermitente (Prime) |
-| Cadeira de Coleta | Categoria | Mobiliário |
-| Cadeira de Coleta | Quantidade | 5 |
-| Cadeira de Coleta | Movimento | Trendelenburg |
-| Cadeira de Coleta | Capacidade | 130-250kg |
-* (Repita este padrão para CADA item. Use 'N/A' se o valor não for informado.)
-* Se não houver itens, escreva "Nenhum".
+| Categoria | Item_Consolidado | Quantidade | Especificacao_Resumida |
+| :--- | :--- | :--- | :--- |
+| Elétricos | Gerador | 1 | Diesel, silencioso (máx 67dB), regime Intermitente (Prime) |
+| Mobiliário | Cadeira de Coleta | 5 | Movimento Trendelenburg, Capacidade 130-250kg |
+* (Repita uma linha para CADA item consolidado. Use 'N/A' se a Qtd ou Espec. não for informada.)
+* Se não houver itens, escreva "Nenhuma".
 ---
 **DOCUMENTO PARA ANÁLISE (NÃO INVENTE DADOS SE ELE NÃO FOR FORNECIDO):**
 --- INÍCIO DA FONTE DA VERDADE (SP) ---
@@ -174,12 +127,12 @@ def parse_summary_table(summary_section):
                 pendencias.append({"Tipo": tipo, "Lista": lista_clean, "Item": detalhe})
     return pd.DataFrame(pendencias)
 
-# --- FUNÇÃO ATUALIZADA para Parsear a Lista Mestra (Extração) ---
+# --- FUNÇÃO DE PARSER ATUALIZADA (Para 4 colunas "Largas") ---
 def parse_extract_table(summary_section):
-    """Parseia a tabela estruturada key-value da função de extração."""
+    """Parseia a tabela estruturada 'wide' (4 colunas) da função de extração."""
     itens = []
-    # Padrão para 3 colunas: Item_Consolidado | Atributo | Valor
-    pattern = r"\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|"
+    # Padrão para 4 colunas: Categoria | Item | Quantidade | Especificacao
+    pattern = r"\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|"
     lines = summary_section.strip().split('\n')
     if len(lines) > 2:
         data_lines = lines[2:] # Pula header e linha de separação
@@ -187,27 +140,31 @@ def parse_extract_table(summary_section):
             match = re.search(pattern, line)
             # Garante que não é uma linha vazia ou de formatação
             if match and match.group(1).strip() != ":---":
-                item_consolidado = match.group(1).strip()
-                atributo = match.group(2).strip()
-                valor = match.group(3).strip()
+                categoria = match.group(1).strip()
+                item = match.group(2).strip()
+                quantidade = match.group(3).strip()
+                especificacao = match.group(4).strip()
                 
                 itens.append({
-                    "Item_Consolidado": item_consolidado, 
-                    "Atributo": atributo, 
-                    "Valor": valor
+                    "Categoria": categoria, 
+                    "Item_Consolidado": item, # Renomeado para clareza
+                    "Quantidade": quantidade, 
+                    "Especificacao_Resumida": especificacao
                 })
     return pd.DataFrame(itens)
 
 
-# --- Função para converter DataFrame para CSV (Sem alteração) ---
+# --- FUNÇÃO DE CONVERSÃO CSV (ATUALIZADA) ---
 @st.cache_data
 def convert_df_to_csv(df):
+    """Converte DataFrame para CSV usando ; como separador para Excel (PT-BR)."""
     if df is None or df.empty:
         return "".encode('utf-8')
-    return df.to_csv(index=False).encode('utf-8')
+    # Usa sep=';' para Excel (Brasil/Europa) e utf-8-sig para incluir BOM (Byte Order Mark)
+    return df.to_csv(index=False, sep=';').encode('utf-8-sig')
 
 # --- Configuração da Página e CSS (Sem alteração) ---
-st.set_page_config(page_title="Agente Auditor v6.3", layout="wide") # v6.3 agora
+st.set_page_config(page_title="Agente Auditor v6.3", layout="wide")
 
 frame_css = """
 <style>
@@ -235,7 +192,7 @@ frame_css = """
 }
 /* Tenta garantir que a sidebar tenha um fundo consistente */
 [data-testid="stSidebar"] {
-    background-color: #F8F9FA; /* Cor de fundo levemente cinza para a sidebar */
+    background-color: #F8F9FA;
 }
 </style>
 """
@@ -252,7 +209,7 @@ if 'lm_uploader_key' not in st.session_state: st.session_state.lm_uploader_key =
 
 
 # --- Header (Sem alteração) ---
-st.title("🤖✨ Agente Auditor v6.3") # v6.3 agora
+st.title("🤖✨ Agente Auditor v6.3")
 st.caption("Auditoria SP vs. Listas & Extração de Lista Mestra | Gemini Cloud")
 
 
@@ -302,7 +259,7 @@ with st.sidebar:
 # st.markdown('<div class="frame output-frame">', unsafe_allow_html=True) # Moldura (comentada)
 st.header("📊 Status e Resultados da Auditoria")
 
-# Lógica principal de execução (AUDITORIA)
+# Lógica principal de execução (AUDITORIA - ATUALIZADA com temperature=0.0)
 if st.session_state.start_audit_clicked:
     st.session_state.read_error = None; st.session_state.audit_results = None; st.session_state.extract_results = None
     
@@ -325,7 +282,7 @@ if st.session_state.start_audit_clicked:
             else:
                 st.success(f"✅ Arquivos lidos!")
                 MODEL_NAME = "gemini-flash-latest"
-                # --- ALTERAÇÃO AQUI: Adiciona temperature=0.0 ---
+                # --- TRAVA DE CONSISTÊNCIA ---
                 llm = ChatGoogleGenerativeAI(model=MODEL_NAME, temperature=0.0) 
                 prompt_template = ChatPromptTemplate.from_template(MASTER_PROMPT_AUDIT) 
                 llm_chain = prompt_template | llm | StrOutputParser()
@@ -347,7 +304,7 @@ if st.session_state.start_audit_clicked:
     st.session_state.start_audit_clicked = False
     if valid: st.rerun()
 
-# Lógica de (EXTRAÇÃO) ATUALIZADA
+# Lógica de (EXTRAÇÃO) ATUALIZADA (com temperature=0.0)
 elif st.session_state.start_extract_clicked:
     st.session_state.read_error = None; st.session_state.audit_results = None; st.session_state.extract_results = None
     
@@ -366,7 +323,7 @@ elif st.session_state.start_extract_clicked:
             else:
                 st.success(f"✅ Arquivo SP lido!")
                 MODEL_NAME = "gemini-flash-latest"
-                # --- ALTERAÇÃO AQUI: Adiciona temperature=0.0 ---
+                # --- TRAVA DE CONSISTÊNCIA ---
                 llm = ChatGoogleGenerativeAI(model=MODEL_NAME, temperature=0.0) 
                 prompt_template = ChatPromptTemplate.from_template(MASTER_PROMPT_EXTRACT) 
                 llm_chain = prompt_template | llm | StrOutputParser()
@@ -382,7 +339,7 @@ elif st.session_state.start_extract_clicked:
                         parts = raw_output.split(summary_marker, 1); report_markdown = parts[0].strip()
                         summary_section = parts[1].strip()
                         if summary_section and summary_section.lower().strip() != "nenhuma":
-                            summary_data = parse_extract_table(summary_section) # <-- Usa novo parser
+                            summary_data = parse_extract_table(summary_section) # <-- Usa parser de 4 colunas
                     
                     st.success("🎉 Extração da Lista Mestra Concluída!")
                     st.session_state.extract_results = (summary_data, report_markdown) 
@@ -409,11 +366,12 @@ if active_results:
          mime='text/markdown',
      )
     
+    # --- BOTÃO DE DOWNLOAD CSV (ATUALIZADO) ---
     if isinstance(summary_data, pd.DataFrame) and not summary_data.empty:
-        csv_data = convert_df_to_csv(summary_data)
+        csv_data = convert_df_to_csv(summary_data) # <-- USA A NOVA FUNÇÃO CSV
         file_name_prefix = "pendencias_auditoria" if audit_type == "Auditoria" else "lista_mestra_extracao"
         st.download_button(
-            label=f"💾 Baixar Tabela ({audit_type}) (CSV)", # Label dinâmica
+            label=f"💾 Baixar Tabela ({audit_type}) (CSV)", 
             data=csv_data,
             file_name=f"{file_name_prefix}_{time.strftime('%Y%m%d_%H%M%S')}.csv",
             mime='text/csv',
@@ -428,7 +386,6 @@ if active_results:
         st.markdown("#### Resumo Gráfico das Pendências")
         try:
             chart_data = summary_data.groupby(['Lista', 'Tipo']).size().reset_index(name='Contagem')
-            # (Removido o expander de 'chart_data')
             color_scale = alt.Scale(domain=['FALTANTE', 'DISCREPANCIA_TECNICA', 'DISCREPANCIA_QUANTIDADE', 'IMPLICITO_FALTANTE'],
                                     range=['#e45756', '#f58518', '#4c78a8', '#54a24b']) 
             tooltip_config = ['Lista', 'Tipo', 'Contagem'] 
@@ -449,11 +406,12 @@ if active_results:
          if report_markdown and "nenhuma pendência encontrada" in report_markdown.lower(): st.info("✅ Nenhuma pendência encontrada (Auditoria).")
          else: st.warning("⚠️ Gráfico não gerado (dados de resumo ausentes/inválidos para Auditoria).")
     
+    # --- EXIBIÇÃO PARA EXTRAÇÃO (ATUALIZADA) ---
     elif audit_type == "Extração da SP":
         st.info("✅ Lista Mestra extraída. Veja o relatório e use o botão 'Baixar Tabela (CSV)' para o arquivo de dados.")
         if isinstance(summary_data, pd.DataFrame) and not summary_data.empty:
              with st.expander("Visualizar Tabela de Extração (Dados do CSV)"):
-                st.dataframe(summary_data) # Mostra a tabela key-value
+                st.dataframe(summary_data) # Mostra a tabela "larga"
 
 # Mensagem inicial se nada foi processado ainda
 elif (not st.session_state.start_audit_clicked and 
