@@ -349,16 +349,19 @@ elif st.session_state.start_extract_clicked:
     if valid: st.rerun()
 
 
-# --- Exibição de Resultados (ATUALIZADA) ---
+# --- Exibição de Resultados (Mostra o último que foi gerado) ---
+# Encontra o resultado ativo (Auditoria ou Extração)
 active_results = st.session_state.audit_results or st.session_state.extract_results
 audit_type = None
 if st.session_state.audit_results: audit_type = "Auditoria"
 elif st.session_state.extract_results: audit_type = "Extração da SP"
 
+
 if active_results:
     summary_data, report_markdown = active_results
     st.markdown(f"#### {audit_type}: Relatório Detalhado")
 
+    # Botão de Download para o Relatório (sempre disponível se houver relatório)
     st.download_button(
          label=f"📄 Baixar Relatório ({audit_type}) (Markdown)",
          data=report_markdown if report_markdown else "Nenhum relatório gerado.",
@@ -366,29 +369,39 @@ if active_results:
          mime='text/markdown',
      )
     
-    # --- BOTÃO DE DOWNLOAD CSV (ATUALIZADO) ---
+    # --- BOTÃO DE DOWNLOAD CSV (CONDICIONAL) ---
+    # Mostra se tivermos um summary_data (seja da Auditoria ou Extração)
     if isinstance(summary_data, pd.DataFrame) and not summary_data.empty:
-        csv_data = convert_df_to_csv(summary_data) # <-- USA A NOVA FUNÇÃO CSV
+        csv_data = convert_df_to_csv(summary_data)
         file_name_prefix = "pendencias_auditoria" if audit_type == "Auditoria" else "lista_mestra_extracao"
         st.download_button(
-            label=f"💾 Baixar Tabela ({audit_type}) (CSV)", 
+            label=f"💾 Baixar Tabela ({audit_type}) (CSV)", # Label dinâmica
             data=csv_data,
             file_name=f"{file_name_prefix}_{time.strftime('%Y%m%d_%H%M%S')}.csv",
             mime='text/csv',
         )
+    # --- (NOVO) Feedback se o CSV não for gerado na Extração ---
+    elif audit_type == "Extração da SP":
+        st.warning("⚠️ **Aviso:** A IA gerou o relatório em Markdown, mas falhou em fornecer os dados estruturados para o arquivo CSV.")
 
-    with st.expander(f"Clique para ver os detalhes ({audit_type})", expanded=True):
+
+    # Expander para o relatório de texto
+    with st.expander(f"Clique para ver os detalhes ({audit_type})", expanded=True): # Começa aberto
         st.markdown(report_markdown if report_markdown else f"*Nenhum relatório ({audit_type}) gerado.*")
 
-    st.markdown("---") 
+    st.markdown("---") # Separador visual
 
+    # ----- Exibe o Gráfico SOMENTE se for 'Auditoria' e tiver dados -----
     if audit_type == "Auditoria" and isinstance(summary_data, pd.DataFrame) and not summary_data.empty:
         st.markdown("#### Resumo Gráfico das Pendências")
         try:
             chart_data = summary_data.groupby(['Lista', 'Tipo']).size().reset_index(name='Contagem')
+
+            # --- GRÁFICO ---
             color_scale = alt.Scale(domain=['FALTANTE', 'DISCREPANCIA_TECNICA', 'DISCREPANCIA_QUANTIDADE', 'IMPLICITO_FALTANTE'],
                                     range=['#e45756', '#f58518', '#4c78a8', '#54a24b']) 
             tooltip_config = ['Lista', 'Tipo', 'Contagem'] 
+
             chart = alt.Chart(chart_data).mark_bar().encode(
                 y=alt.Y('Lista', sort='-x', title='Lista / Origem'),
                 x=alt.X('Contagem', title='Nº de Pendências'),
@@ -408,7 +421,8 @@ if active_results:
     
     # --- EXIBIÇÃO PARA EXTRAÇÃO (ATUALIZADA) ---
     elif audit_type == "Extração da SP":
-        st.info("✅ Lista Mestra extraída. Veja o relatório e use o botão 'Baixar Tabela (CSV)' para o arquivo de dados.")
+        # A mensagem de aviso sobre o CSV já apareceu acima (se necessário)
+        st.info("✅ Lista Mestra extraída. Veja o relatório acima.")
         if isinstance(summary_data, pd.DataFrame) and not summary_data.empty:
              with st.expander("Visualizar Tabela de Extração (Dados do CSV)"):
                 st.dataframe(summary_data) # Mostra a tabela "larga"
@@ -423,3 +437,4 @@ elif (not st.session_state.start_audit_clicked and
 # st.markdown('</div>', unsafe_allow_html=True) # Moldura (comentada)
 
 # --- (Fim do código principal) ---
+
