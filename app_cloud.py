@@ -6,11 +6,7 @@ import docx
 import json
 from io import BytesIO
 import altair as alt
-
-# Importando ferramentas da LangChain
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
+import google.generativeai as genai
 
 # --- FUNÇÕES DE UTILIDADE ---
 
@@ -55,67 +51,61 @@ def read_analysis_files(files):
             st.error(f"Erro ao ler arquivo {file.name}: {e}")
     return '\n'.join(all_content)
 
-# --- CHAMADA DA IA COM FALLBACK ---
+# --- CONFIGURAÇÃO DA IA (DIRETO NO SDK DO GOOGLE) ---
 
-def call_gemini(system_prompt, human_content, api_key, is_json=True):
-    # Lista de nomes de modelos para tentar (do mais novo para o mais estável)
-    model_options = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
-    
-    last_error = ""
-    for model_name in model_options:
-        try:
-            kwargs = {"response_mime_type": "application/json"} if is_json else {}
-            model = ChatGoogleGenerativeAI(
-                model=model_name,
-                google_api_key=api_key,
-                temperature=0,
-                model_kwargs=kwargs
-            )
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", system_prompt),
-                ("human", human_content)
-            ])
-            chain = prompt | model | StrOutputParser()
-            return chain.invoke({})
-        except Exception as e:
-            last_error = str(e)
-            if "404" in last_error:
-                continue # Tenta o próximo modelo da lista
-            else:
-                break
-    
-    raise Exception(f"Todos os modelos falharam. Erro final: {last_error}")
+def call_gemini_direct(system_prompt, user_content, api_key):
+    try:
+        genai.configure(api_key=api_key)
+        # Usamos o Gemini 1.5 Flash (mais rápido e barato)
+        model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",
+            system_instruction=system_prompt
+        )
+        
+        # Configuração para forçar resposta em JSON
+        generation_config = {
+            "temperature": 0,
+            "top_p": 0.95,
+            "top_k": 64,
+            "max_output_tokens": 8192,
+            "response_mime_type": "application/json",
+        }
+        
+        response = model.generate_content(user_content, generation_config=generation_config)
+        return response.text
+    except Exception as e:
+        raise Exception(f"Erro na Chamada do Google: {str(e)}")
 
 # --- PROMPTS ---
 
 SYSTEM_PROMPT_AUDIT = """Você é um auditor de engenharia. Compare a SP com as Listas.
-Responda APENAS em JSON:
-{{
-  "relatorio_markdown": "Relatório aqui...",
+Retorne um JSON exatamente com esta estrutura:
+{
+  "relatorio_markdown": "Texto do relatório aqui...",
   "pendencias": [
-    {{"Tipo": "FALTANTE", "Lista": "nome", "Item": "descrição"}}
+    {"Tipo": "FALTANTE", "Lista": "nome", "Item": "descrição"}
   ]
-}}"""
+}"""
 
 SYSTEM_PROMPT_EXTRACT = """Você é um especialista em BOM. Extraia itens da SP.
-Responda APENAS em JSON:
-{{
-  "relatorio_markdown": "Lista aqui...",
+Retorne um JSON exatamente com esta estrutura:
+{
+  "relatorio_markdown": "Lista formatada...",
   "itens": [
-    {{"Categoria": "Mecânica", "Item": "nome", "Quantidade": "1", "Especificacao": "detalhe"}}
+    {"Categoria": "Mecânica", "Item": "nome", "Quantidade": "1", "Especificacao": "detalhe"}
   ]
-}}"""
+}"""
 
 # --- INTERFACE ---
 
-st.set_page_config(page_title="Agente Auditor v7.5", layout="wide")
+st.set_page_config(page_title="Agente Auditor v7.6", layout="wide")
 
 if 'chat_history' not in st.session_state: st.session_state.chat_history = []
 if 'audit_data' not in st.session_state: st.session_state.audit_data = None
 if 'sp_text' not in st.session_state: st.session_state.sp_text = ""
 if 'list_text' not in st.session_state: st.session_state.list_text = ""
 
-st.title("🤖 Agente Auditor v7.5")
+st.title("🤖 Agente Auditor v7.6 (Versão Estabilizada)")
 
 with st.sidebar:
     st.header("Configurações")
@@ -130,28 +120,26 @@ with st.sidebar:
         if api_key and sp_file and list_files:
             with st.spinner("Auditando..."):
                 try:
-                    sp_text = read_sp_file(sp_file)
-                    list_text = read_analysis_files(list_files)
-                    st.session_state.sp_text, st.session_state.list_text = sp_text, list_text
+                    st.session_state.sp_text = read_sp_file(sp_file)
+                    st.session_state.list_text = read_analysis_files(list_files)
                     
-                    res = call_gemini(SYSTEM_PROMPT_AUDIT, f"SP: {sp_text}\nListas: {list_text}", api_key)
-                    st.session_state.audit_data = json.loads(res.strip().replace("```json", "").replace("```", ""))
+                    res_json = call_gemini_direct(SYSTEM_PROMPT_AUDIT, f"SP: {st.session_state.sp_text}\n\nListas: {st.session_state.list_text}", api_key)
+                    st.session_state.audit_data = json.loads(res_json)
                 except Exception as e:
                     st.error(f"Erro: {e}")
-        else: st.warning("Faltam dados.")
+        else: st.warning("Preencha tudo antes de começar.")
 
     if st.button("📋 Extrair Lista"):
         if api_key and sp_file:
             with st.spinner("Extraindo..."):
                 try:
-                    sp_text = read_sp_file(sp_file)
-                    st.session_state.sp_text = sp_text
-                    res = call_gemini(SYSTEM_PROMPT_EXTRACT, f"Documento: {sp_text}", api_key)
-                    st.session_state.audit_data = json.loads(res.strip().replace("```json", "").replace("```", ""))
+                    st.session_state.sp_text = read_sp_file(sp_file)
+                    res_json = call_gemini_direct(SYSTEM_PROMPT_EXTRACT, f"Extraia da SP: {st.session_state.sp_text}", api_key)
+                    st.session_state.audit_data = json.loads(res_json)
                 except Exception as e:
                     st.error(f"Erro: {e}")
 
-# --- EXIBIÇÃO ---
+# --- RESULTADOS ---
 
 if st.session_state.audit_data:
     data = st.session_state.audit_data
@@ -167,16 +155,18 @@ if st.session_state.audit_data:
             st.dataframe(pd.DataFrame(data["itens"]), use_container_width=True)
 
     st.divider()
-    st.subheader("💬 Chat")
+    st.subheader("💬 Chat Tira-Dúvidas")
     for m in st.session_state.chat_history:
         with st.chat_message(m["role"]): st.markdown(m["content"])
 
-    if p := st.chat_input("Dúvida?"):
+    if p := st.chat_input("Pergunte algo..."):
         st.session_state.chat_history.append({"role": "user", "content": p})
         with st.chat_message("user"): st.markdown(p)
         try:
-            ctx = f"Contexto: {st.session_state.sp_text[:3000]}"
-            resp = call_gemini("Responda de forma técnica.", f"{ctx}\nPergunta: {p}", api_key, is_json=False)
-            with st.chat_message("assistant"): st.markdown(resp)
-            st.session_state.chat_history.append({"role": "assistant", "content": resp})
+            genai.configure(api_key=api_key)
+            model_chat = genai.GenerativeModel('gemini-1.5-flash')
+            ctx = f"Contexto SP: {st.session_state.sp_text[:4000]}"
+            resp = model_chat.generate_content(f"{ctx}\n\nPergunta do usuário: {p}")
+            with st.chat_message("assistant"): st.markdown(resp.text)
+            st.session_state.chat_history.append({"role": "assistant", "content": resp.text})
         except Exception as e: st.error(e)
