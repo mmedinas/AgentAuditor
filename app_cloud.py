@@ -15,7 +15,6 @@ from langchain_core.output_parsers import StrOutputParser
 # --- FUNÇÕES DE UTILIDADE ---
 
 def clean_dataframe(df):
-    """Limpa colunas irrelevantes para economizar tokens."""
     palavras_chave = ['item', 'descri', 'especifica', 'qtd', 'quant', 'unid', 'cod', 'part number']
     df.columns = [str(c).lower().strip() for c in df.columns]
     cols_para_manter = [c for c in df.columns if any(p in c for p in palavras_chave)]
@@ -56,24 +55,36 @@ def read_analysis_files(files):
             st.error(f"Erro ao ler arquivo {file.name}: {e}")
     return '\n'.join(all_content)
 
-# --- MODELOS (Nomes Estabilizados) ---
+# --- CHAMADA DA IA COM FALLBACK ---
 
-def get_audit_model(api_key):
-    # Nomes mais simples possíveis para evitar erro 404
-    return ChatGoogleGenerativeAI(
-        model="gemini-1.5-flash", 
-        google_api_key=api_key,
-        temperature=0,
-        model_kwargs={"response_mime_type": "application/json"}
-    )
-
-def get_chat_model(api_key):
-    # Usando o flash padrão se o 8b der erro
-    return ChatGoogleGenerativeAI(
-        model="gemini-1.5-flash", 
-        google_api_key=api_key,
-        temperature=0.2
-    )
+def call_gemini(system_prompt, human_content, api_key, is_json=True):
+    # Lista de nomes de modelos para tentar (do mais novo para o mais estável)
+    model_options = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
+    
+    last_error = ""
+    for model_name in model_options:
+        try:
+            kwargs = {"response_mime_type": "application/json"} if is_json else {}
+            model = ChatGoogleGenerativeAI(
+                model=model_name,
+                google_api_key=api_key,
+                temperature=0,
+                model_kwargs=kwargs
+            )
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", system_prompt),
+                ("human", human_content)
+            ])
+            chain = prompt | model | StrOutputParser()
+            return chain.invoke({})
+        except Exception as e:
+            last_error = str(e)
+            if "404" in last_error:
+                continue # Tenta o próximo modelo da lista
+            else:
+                break
+    
+    raise Exception(f"Todos os modelos falharam. Erro final: {last_error}")
 
 # --- PROMPTS ---
 
@@ -95,77 +106,52 @@ Responda APENAS em JSON:
   ]
 }}"""
 
-# --- UI ---
+# --- INTERFACE ---
 
-st.set_page_config(page_title="Agente Auditor v7.4", layout="wide")
+st.set_page_config(page_title="Agente Auditor v7.5", layout="wide")
 
 if 'chat_history' not in st.session_state: st.session_state.chat_history = []
 if 'audit_data' not in st.session_state: st.session_state.audit_data = None
 if 'sp_text' not in st.session_state: st.session_state.sp_text = ""
 if 'list_text' not in st.session_state: st.session_state.list_text = ""
 
-st.title("🤖 Agente Auditor v7.4")
+st.title("🤖 Agente Auditor v7.5")
 
 with st.sidebar:
     st.header("Configurações")
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        api_key = st.text_input("Insira sua Google API Key:", type="password")
+    api_key = os.getenv("GOOGLE_API_KEY") or st.text_input("Google API Key:", type="password")
     
     st.divider()
-    sp_file = st.file_uploader("1. Documento Base (SP)", type=["docx"])
-    list_files = st.file_uploader("2. Listas de Materiais", type=["xlsx", "csv"], accept_multiple_files=True)
+    sp_file = st.file_uploader("1. SP (.docx)", type=["docx"])
+    list_files = st.file_uploader("2. Listas (.xlsx, .csv)", type=["xlsx", "csv"], accept_multiple_files=True)
     
     st.divider()
     if st.button("🔍 Iniciar Auditoria", type="primary"):
-        if not api_key: st.warning("Insira a chave API")
-        elif not sp_file or not list_files: st.warning("Carregue os arquivos")
-        else:
-            with st.spinner("IA Auditando..."):
-                st.session_state.sp_text = read_sp_file(sp_file)
-                st.session_state.list_text = read_analysis_files(list_files)
+        if api_key and sp_file and list_files:
+            with st.spinner("Auditando..."):
                 try:
-                    model = get_audit_model(api_key)
-                    prompt = ChatPromptTemplate.from_messages([
-                        ("system", SYSTEM_PROMPT_AUDIT),
-                        ("human", "Analise:\nSP: {sp}\nListas: {listas}")
-                    ])
-                    chain = prompt | model | StrOutputParser()
-                    res = chain.invoke({"sp": st.session_state.sp_text, "listas": st.session_state.list_text})
-                    # Tratamento extra para garantir que o JSON seja lido corretamente
-                    res_clean = res.strip().replace("```json", "").replace("```", "")
-                    st.session_state.audit_data = json.loads(res_clean)
+                    sp_text = read_sp_file(sp_file)
+                    list_text = read_analysis_files(list_files)
+                    st.session_state.sp_text, st.session_state.list_text = sp_text, list_text
+                    
+                    res = call_gemini(SYSTEM_PROMPT_AUDIT, f"SP: {sp_text}\nListas: {list_text}", api_key)
+                    st.session_state.audit_data = json.loads(res.strip().replace("```json", "").replace("```", ""))
                 except Exception as e:
-                    st.error(f"Erro na IA: {e}")
+                    st.error(f"Erro: {e}")
+        else: st.warning("Faltam dados.")
 
-    if st.button("📋 Extrair Lista Mestra"):
-        if not api_key or not sp_file: st.warning("Verifique a Chave e o arquivo SP")
-        else:
-            with st.spinner("IA Extraindo..."):
-                st.session_state.sp_text = read_sp_file(sp_file)
+    if st.button("📋 Extrair Lista"):
+        if api_key and sp_file:
+            with st.spinner("Extraindo..."):
                 try:
-                    model = get_audit_model(api_key)
-                    prompt = ChatPromptTemplate.from_messages([
-                        ("system", SYSTEM_PROMPT_EXTRACT),
-                        ("human", "Extraia da SP: {sp}")
-                    ])
-                    chain = prompt | model | StrOutputParser()
-                    res = chain.invoke({"sp": st.session_state.sp_text})
-                    res_clean = res.strip().replace("```json", "").replace("```", "")
-                    st.session_state.audit_data = json.loads(res_clean)
+                    sp_text = read_sp_file(sp_file)
+                    st.session_state.sp_text = sp_text
+                    res = call_gemini(SYSTEM_PROMPT_EXTRACT, f"Documento: {sp_text}", api_key)
+                    st.session_state.audit_data = json.loads(res.strip().replace("```json", "").replace("```", ""))
                 except Exception as e:
-                    st.error(f"Erro na IA: {e}")
+                    st.error(f"Erro: {e}")
 
-    if st.button("🛠️ Diagnóstico de Conexão"):
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=api_key)
-            models = [m.name for m in genai.list_models()]
-            st.info(f"Modelos disponíveis para sua chave: {models}")
-        except Exception as e:
-            st.error(f"Falha no diagnóstico: {e}")
-
-# --- RESULTADOS ---
+# --- EXIBIÇÃO ---
 
 if st.session_state.audit_data:
     data = st.session_state.audit_data
@@ -176,14 +162,9 @@ if st.session_state.audit_data:
     with c2:
         st.subheader("Dados")
         if "pendencias" in data:
-            df = pd.DataFrame(data["pendencias"])
-            if not df.empty:
-                st.dataframe(df, use_container_width=True)
-                chart = alt.Chart(df).mark_bar().encode(x='count()', y='Tipo', color='Tipo')
-                st.altair_chart(chart, use_container_width=True)
+            st.dataframe(pd.DataFrame(data["pendencias"]), use_container_width=True)
         if "itens" in data:
-            df_itens = pd.DataFrame(data["itens"])
-            st.dataframe(df_itens, use_container_width=True)
+            st.dataframe(pd.DataFrame(data["itens"]), use_container_width=True)
 
     st.divider()
     st.subheader("💬 Chat")
@@ -193,16 +174,9 @@ if st.session_state.audit_data:
     if p := st.chat_input("Dúvida?"):
         st.session_state.chat_history.append({"role": "user", "content": p})
         with st.chat_message("user"): st.markdown(p)
-        with st.chat_message("assistant"):
-            try:
-                chat_model = get_chat_model(api_key)
-                ctx = f"Doc: {st.session_state.sp_text[:3000]}"
-                prompt_chat = ChatPromptTemplate.from_messages([
-                    ("system", "Responda de forma curta."),
-                    ("human", f"{ctx}\n\nPergunta: {p}")
-                ])
-                resp = (prompt_chat | chat_model | StrOutputParser()).invoke({})
-                st.markdown(resp)
-                st.session_state.chat_history.append({"role": "assistant", "content": resp})
-            except Exception as e:
-                st.error(f"Erro no chat: {e}")
+        try:
+            ctx = f"Contexto: {st.session_state.sp_text[:3000]}"
+            resp = call_gemini("Responda de forma técnica.", f"{ctx}\nPergunta: {p}", api_key, is_json=False)
+            with st.chat_message("assistant"): st.markdown(resp)
+            st.session_state.chat_history.append({"role": "assistant", "content": resp})
+        except Exception as e: st.error(e)
