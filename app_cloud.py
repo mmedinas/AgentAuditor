@@ -11,24 +11,17 @@ import altair as alt
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.messages import HumanMessage, AIMessage
 
 # --- FUNÇÕES DE UTILIDADE (Leitura e Limpeza) ---
 
 def clean_dataframe(df):
     """Mantém apenas colunas úteis para economizar tokens e remove linhas vazias."""
-    # Colunas que geralmente importam em engenharia
     palavras_chave = ['item', 'descri', 'especifica', 'qtd', 'quant', 'unid', 'cod', 'part number']
-    
-    # Converte nomes das colunas para minúsculo para comparar
     df.columns = [str(c).lower() for c in df.columns]
-    
     cols_para_manter = [c for c in df.columns if any(p in c for p in palavras_chave)]
-    
     if cols_para_manter:
         df = df[cols_para_manter]
-    
-    return df.dropna(how='all').head(500) # Limite de 500 linhas por aba para segurança
+    return df.dropna(how='all').head(500)
 
 def read_sp_file(file):
     try:
@@ -53,7 +46,6 @@ def read_analysis_files(files):
                 df = clean_dataframe(df)
                 all_content.append(f"--- LISTA: {file_base_name} ---\n{df.to_string(index=False)}\n")
             elif file.name.endswith('.xlsx'):
-                # Lê todas as abas do Excel
                 excel_file = pd.ExcelFile(BytesIO(file.getvalue()))
                 for sheet_name in excel_file.sheet_names:
                     df = pd.read_excel(excel_file, sheet_name=sheet_name)
@@ -66,16 +58,14 @@ def read_analysis_files(files):
 
 # --- CONFIGURAÇÃO DOS MODELOS (IA) ---
 
-# Modelo principal para Auditoria (Flash 1.5 - Rápido e Inteligente)
 def get_audit_model(api_key):
     return ChatGoogleGenerativeAI(
         model="gemini-1.5-flash",
         google_api_key=api_key,
         temperature=0,
-        model_kwargs={"response_mime_type": "application/json"} # Força resposta em JSON
+        model_kwargs={"response_mime_type": "application/json"}
     )
 
-# Modelo para o Chat (Flash 8B - O mais barato/econômico de todos)
 def get_chat_model(api_key):
     return ChatGoogleGenerativeAI(
         model="gemini-1.5-flash-8b", 
@@ -83,47 +73,40 @@ def get_chat_model(api_key):
         temperature=0.1
     )
 
-# --- PROMPTS (Instruções do Sistema) ---
+# --- PROMPTS (Corrigidos com chaves duplas para evitar o erro) ---
 
 SYSTEM_PROMPT_AUDIT = """Você é um auditor de engenharia. Sua tarefa é comparar a SP (Fonte da Verdade) com as Listas de Materiais.
 Responda EXCLUSIVAMENTE no formato JSON abaixo:
-{
-  "relatorio_markdown": "Seu texto detalhado aqui explicando as divergências...",
+{{
+  "relatorio_markdown": "Seu texto detalhado aqui...",
   "pendencias": [
-    {"Tipo": "FALTANTE", "Lista": "Nome da Lista", "Item": "Nome do Item"},
-    {"Tipo": "DISCREPANCIA_TECNICA", "Lista": "Nome da Lista", "Item": "Nome do Item"},
-    {"Tipo": "DISCREPANCIA_QUANTIDADE", "Lista": "Nome da Lista", "Item": "Nome do Item"}
+    {{"Tipo": "FALTANTE", "Lista": "Nome da Lista", "Item": "Nome do Item"}},
+    {{"Tipo": "DISCREPANCIA_TECNICA", "Lista": "Nome da Lista", "Item": "Nome do Item"}},
+    {{"Tipo": "DISCREPANCIA_QUANTIDADE", "Lista": "Nome da Lista", "Item": "Nome do Item"}}
   ]
-}
+}}
 """
 
-SYSTEM_PROMPT_EXTRACT = """Você é um especialista em BOM (Bill of Materials). Extraia os itens da SP.
+SYSTEM_PROMPT_EXTRACT = """Você é um especialista em BOM. Extraia os itens da SP.
 Responda EXCLUSIVAMENTE no formato JSON:
-{
+{{
   "relatorio_markdown": "Lista formatada em markdown...",
   "itens": [
-    {"Categoria": "Eletrica", "Item": "Cabo X", "Quantidade": "10", "Especificacao": "2.5mm"}
+    {{"Categoria": "Eletrica", "Item": "Cabo X", "Quantidade": "10", "Especificacao": "2.5mm"}}
   ]
-}
+}}
 """
 
 # --- INTERFACE STREAMLIT ---
 
-st.set_page_config(page_title="Agente Auditor v7.0", layout="wide")
+st.set_page_config(page_title="Agente Auditor v7.1", layout="wide")
 
-# Estilo visual
-st.markdown("""<style>
-    .stButton>button { width: 100%; border-radius: 5px; }
-    .report-box { padding: 20px; border: 1px solid #ddd; border-radius: 10px; background-color: #f9f9f9; }
-</style>""", unsafe_allow_html=True)
-
-# Inicialização de estados
 if 'chat_history' not in st.session_state: st.session_state.chat_history = []
 if 'audit_data' not in st.session_state: st.session_state.audit_data = None
 if 'sp_text' not in st.session_state: st.session_state.sp_text = ""
 if 'list_text' not in st.session_state: st.session_state.list_text = ""
 
-st.title("🤖 Agente Auditor v7.0")
+st.title("🤖 Agente Auditor v7.1")
 
 with st.sidebar:
     st.header("Configurações")
@@ -140,9 +123,20 @@ with st.sidebar:
     btn_extract = st.button("📋 Extrair Lista Mestra")
     if st.button("🗑️ Limpar Chat"):
         st.session_state.chat_history = []
+        st.session_state.audit_data = None
         st.rerun()
 
-# --- LÓGICA PRINCIPAL ---
+# --- LÓGICA DE PROCESSAMENTO ---
+
+def process_ai_response(response_text):
+    """Limpa a resposta da IA e converte para dicionário Python."""
+    try:
+        # Remove possíveis marcações de markdown (```json ... ```)
+        clean_text = response_text.replace("```json", "").replace("```", "").strip()
+        return json.loads(clean_text)
+    except Exception as e:
+        st.error(f"Erro ao converter resposta da IA: {e}")
+        return None
 
 if btn_audit and sp_file and list_files and api_key:
     with st.spinner("Auditando documentos..."):
@@ -152,14 +146,17 @@ if btn_audit and sp_file and list_files and api_key:
         st.session_state.list_text = list_content
         
         model = get_audit_model(api_key)
+        # Passamos os conteúdos como strings diretas dentro do prompt human
         prompt = ChatPromptTemplate.from_messages([
             ("system", SYSTEM_PROMPT_AUDIT),
-            ("human", f"SP: {sp_content}\n\nLISTAS: {list_content}")
+            ("human", "Analise estes documentos:\n\nSP: {sp}\n\nLISTAS: {listas}")
         ])
         
         try:
-            response = (prompt | model | StrOutputParser()).invoke({})
-            st.session_state.audit_data = json.loads(response)
+            # Aqui preenchemos as variáveis 'sp' e 'listas' que definimos no HumanMessage
+            chain = prompt | model | StrOutputParser()
+            response_raw = chain.invoke({"sp": sp_content, "listas": list_content})
+            st.session_state.audit_data = process_ai_response(response_raw)
         except Exception as e:
             st.error(f"Erro no processamento da IA: {e}")
 
@@ -171,12 +168,13 @@ if btn_extract and sp_file and api_key:
         model = get_audit_model(api_key)
         prompt = ChatPromptTemplate.from_messages([
             ("system", SYSTEM_PROMPT_EXTRACT),
-            ("human", f"Documento SP: {sp_content}")
+            ("human", "Extraia os itens deste documento: {sp}")
         ])
         
         try:
-            response = (prompt | model | StrOutputParser()).invoke({})
-            st.session_state.audit_data = json.loads(response)
+            chain = prompt | model | StrOutputParser()
+            response_raw = chain.invoke({"sp": sp_content})
+            st.session_state.audit_data = process_ai_response(response_raw)
         except Exception as e:
             st.error(f"Erro na extração: {e}")
 
@@ -184,62 +182,43 @@ if btn_extract and sp_file and api_key:
 
 if st.session_state.audit_data:
     data = st.session_state.audit_data
-    
     col1, col2 = st.columns([1, 1])
     
     with col1:
         st.subheader("Relatório Detalhado")
         st.markdown(data.get("relatorio_markdown", "Sem relatório disponível."))
-        
-        # Botão de download do relatório
-        st.download_button("Baixar Relatório (.md)", data.get("relatorio_markdown", ""), file_name="relatorio_auditoria.md")
-
+    
     with col2:
         st.subheader("Visualização de Dados")
-        # Se for auditoria, mostra pendências
         if "pendencias" in data:
-            df_pendencias = pd.DataFrame(data["pendencias"])
-            if not df_pendencias.empty:
-                st.dataframe(df_pendencias, use_container_width=True)
-                
-                # Gráfico
-                chart = alt.Chart(df_pendencias).mark_bar().encode(
-                    x='count()',
-                    y='Tipo',
-                    color='Tipo'
-                ).properties(height=200)
+            df = pd.DataFrame(data["pendencias"])
+            if not df.empty:
+                st.dataframe(df, use_container_width=True)
+                chart = alt.Chart(df).mark_bar().encode(x='count()', y='Tipo', color='Tipo').properties(height=200)
                 st.altair_chart(chart, use_container_width=True)
         
-        # Se for extração, mostra itens
         if "itens" in data:
             df_itens = pd.DataFrame(data["itens"])
             st.dataframe(df_itens, use_container_width=True)
-            csv = df_itens.to_csv(index=False).encode('utf-8-sig')
-            st.download_button("Baixar Tabela CSV", csv, "lista_extraida.csv", "text/csv")
 
     st.divider()
 
-    # --- CHAT TIRA-DÚVIDAS (MODELO 8B MAIS BARATO) ---
+    # Chat
     st.subheader("💬 Chat sobre o Projeto")
-    
     for msg in st.session_state.chat_history:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+        with st.chat_message(msg["role"]): st.markdown(msg["content"])
 
-    if user_input := st.chat_input("Pergunte algo sobre a SP ou as Listas..."):
+    if user_input := st.chat_input("Pergunte algo..."):
         st.session_state.chat_history.append({"role": "user", "content": user_input})
         with st.chat_message("user"): st.markdown(user_input)
         
         with st.chat_message("assistant"):
             chat_model = get_chat_model(api_key)
-            # Enviamos apenas um resumo/contexto para o chat não ficar caro
-            contexto = f"CONTEXTO SP: {st.session_state.sp_text[:5000]}\n\nCONTEXTO LISTAS: {st.session_state.list_text[:5000]}"
-            
+            contexto = f"SP: {st.session_state.sp_text[:4000]}\n\nLISTAS: {st.session_state.list_text[:4000]}"
             prompt_chat = ChatPromptTemplate.from_messages([
-                ("system", "Você é um assistente técnico. Responda com base no contexto fornecido."),
-                ("human", f"{contexto}\n\nPergunta: {user_input}")
+                ("system", "Você é um assistente técnico de engenharia. Responda com base nos documentos fornecidos."),
+                ("human", f"Contexto: {contexto}\n\nPergunta: {user_input}")
             ])
-            
             response = (prompt_chat | chat_model | StrOutputParser()).invoke({})
             st.markdown(response)
             st.session_state.chat_history.append({"role": "assistant", "content": response})
