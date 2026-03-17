@@ -56,21 +56,21 @@ def read_analysis_files(files):
             st.error(f"Erro ao ler arquivo {file.name}: {e}")
     return '\n'.join(all_content)
 
-# --- MODELOS ---
+# --- MODELOS (Nomes Estabilizados) ---
 
 def get_audit_model(api_key):
-    # Usando a versão 'latest' para evitar o erro 404
+    # Nomes mais simples possíveis para evitar erro 404
     return ChatGoogleGenerativeAI(
-        model="gemini-1.5-flash-latest", 
+        model="gemini-1.5-flash", 
         google_api_key=api_key,
         temperature=0,
         model_kwargs={"response_mime_type": "application/json"}
     )
 
 def get_chat_model(api_key):
-    # Modelo 8B: Mais rápido e econômico para conversas
+    # Usando o flash padrão se o 8b der erro
     return ChatGoogleGenerativeAI(
-        model="gemini-1.5-flash-8b-latest", 
+        model="gemini-1.5-flash", 
         google_api_key=api_key,
         temperature=0.2
     )
@@ -97,14 +97,14 @@ Responda APENAS em JSON:
 
 # --- UI ---
 
-st.set_page_config(page_title="Agente Auditor v7.3", layout="wide")
+st.set_page_config(page_title="Agente Auditor v7.4", layout="wide")
 
 if 'chat_history' not in st.session_state: st.session_state.chat_history = []
 if 'audit_data' not in st.session_state: st.session_state.audit_data = None
 if 'sp_text' not in st.session_state: st.session_state.sp_text = ""
 if 'list_text' not in st.session_state: st.session_state.list_text = ""
 
-st.title("🤖 Agente Auditor v7.3")
+st.title("🤖 Agente Auditor v7.4")
 
 with st.sidebar:
     st.header("Configurações")
@@ -118,8 +118,8 @@ with st.sidebar:
     
     st.divider()
     if st.button("🔍 Iniciar Auditoria", type="primary"):
-        if not api_key or not sp_file or not list_files:
-            st.warning("Verifique se a Chave API e os Arquivos foram carregados.")
+        if not api_key: st.warning("Insira a chave API")
+        elif not sp_file or not list_files: st.warning("Carregue os arquivos")
         else:
             with st.spinner("IA Auditando..."):
                 st.session_state.sp_text = read_sp_file(sp_file)
@@ -132,13 +132,14 @@ with st.sidebar:
                     ])
                     chain = prompt | model | StrOutputParser()
                     res = chain.invoke({"sp": st.session_state.sp_text, "listas": st.session_state.list_text})
-                    st.session_state.audit_data = json.loads(res.replace("```json", "").replace("```", ""))
+                    # Tratamento extra para garantir que o JSON seja lido corretamente
+                    res_clean = res.strip().replace("```json", "").replace("```", "")
+                    st.session_state.audit_data = json.loads(res_clean)
                 except Exception as e:
                     st.error(f"Erro na IA: {e}")
 
     if st.button("📋 Extrair Lista Mestra"):
-        if not api_key or not sp_file:
-            st.warning("Verifique a Chave API e o arquivo SP.")
+        if not api_key or not sp_file: st.warning("Verifique a Chave e o arquivo SP")
         else:
             with st.spinner("IA Extraindo..."):
                 st.session_state.sp_text = read_sp_file(sp_file)
@@ -150,9 +151,19 @@ with st.sidebar:
                     ])
                     chain = prompt | model | StrOutputParser()
                     res = chain.invoke({"sp": st.session_state.sp_text})
-                    st.session_state.audit_data = json.loads(res.replace("```json", "").replace("```", ""))
+                    res_clean = res.strip().replace("```json", "").replace("```", "")
+                    st.session_state.audit_data = json.loads(res_clean)
                 except Exception as e:
                     st.error(f"Erro na IA: {e}")
+
+    if st.button("🛠️ Diagnóstico de Conexão"):
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=api_key)
+            models = [m.name for m in genai.list_models()]
+            st.info(f"Modelos disponíveis para sua chave: {models}")
+        except Exception as e:
+            st.error(f"Falha no diagnóstico: {e}")
 
 # --- RESULTADOS ---
 
@@ -163,7 +174,7 @@ if st.session_state.audit_data:
         st.subheader("Relatório")
         st.markdown(data.get("relatorio_markdown", ""))
     with c2:
-        st.subheader("Tabela de Dados")
+        st.subheader("Dados")
         if "pendencias" in data:
             df = pd.DataFrame(data["pendencias"])
             if not df.empty:
@@ -175,19 +186,19 @@ if st.session_state.audit_data:
             st.dataframe(df_itens, use_container_width=True)
 
     st.divider()
-    st.subheader("💬 Chat Tira-Dúvidas")
+    st.subheader("💬 Chat")
     for m in st.session_state.chat_history:
         with st.chat_message(m["role"]): st.markdown(m["content"])
 
-    if p := st.chat_input("Pergunte algo sobre os documentos..."):
+    if p := st.chat_input("Dúvida?"):
         st.session_state.chat_history.append({"role": "user", "content": p})
         with st.chat_message("user"): st.markdown(p)
         with st.chat_message("assistant"):
             try:
                 chat_model = get_chat_model(api_key)
-                ctx = f"SP: {st.session_state.sp_text[:3000]}\nListas: {st.session_state.list_text[:3000]}"
+                ctx = f"Doc: {st.session_state.sp_text[:3000]}"
                 prompt_chat = ChatPromptTemplate.from_messages([
-                    ("system", "Você é um assistente técnico. Use o contexto para responder."),
+                    ("system", "Responda de forma curta."),
                     ("human", f"{ctx}\n\nPergunta: {p}")
                 ])
                 resp = (prompt_chat | chat_model | StrOutputParser()).invoke({})
